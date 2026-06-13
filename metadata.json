@@ -1,0 +1,6 @@
+{
+  "name": "ElitePrep",
+  "description": "High-tech Indian Government Exam Test Platform featuring interactive mock tests, real-time visual performance analytics, AI-simulated exam feedback, and personalized premium study prep portals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,109 @@
+{
+  "entities": {
+    "Profile": {
+      "title": "Profile",
+      "description": "Public student profile statistics and status for leaderboard and dashboard insights",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The unique user ID" },
+        "name": { "type": "string", "description": "The student's display name" },
+        "examCategory": { "type": "string", "description": "The current targeted government exam" },
+        "avatarUrl": { "type": "string", "description": "Avatar image representation identifier" },
+        "totalTests": { "type": "integer", "description": "Complete mock test attempts count" },
+        "averageAccuracy": { "type": "number", "description": "Percentage representing average correct answers" },
+        "averagePercentile": { "type": "number", "description": "Calculated percentile compared to simulated toppers" },
+        "streakDays": { "type": "integer", "description": "Active consecutive check-in days count" },
+        "predictedRank": { "type": "integer", "description": "Estimated rank in the actual exam" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Timestamp of profile change" }
+      },
+      "required": ["userId", "name", "examCategory", "totalTests", "averageAccuracy", "streakDays", "updatedAt"]
+    },
+    "PrivateInfo": {
+      "title": "PrivateInfo",
+      "description": "Sensitive user identity and subscription status information",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "description": "The secure user email" },
+        "tier": { "type": "string", "enum": ["free", "premium"], "description": "Subscription tier" },
+        "planExpiresAt": { "type": "string", "format": "date-time", "description": "Timestamp of subscription expiration" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp of the user account" }
+      },
+      "required": ["email", "tier", "createdAt"]
+    },
+    "MockTest": {
+      "title": "MockTest",
+      "description": "A comprehensive standard mock test paper for a government exam",
+      "type": "object",
+      "properties": {
+        "testId": { "type": "string", "description": "Unique test identifier" },
+        "title": { "type": "string", "description": "The full title of the mock paper" },
+        "category": { "type": "string", "description": "The specific Indian exam category (UPSC, SSC, Banking, Rail)" },
+        "questionsCount": { "type": "integer", "description": "Total number of questions in paper" },
+        "durationMinutes": { "type": "integer", "description": "Timer duration allocated for the paper" },
+        "difficulty": { "type": "string", "enum": ["Easy", "Medium", "Hard"], "description": "Calculated difficulty scale" },
+        "questions": {
+          "type": "array",
+          "description": "Strictly limited questions database payload containing options, answers and tags"
+        },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp of creation by Admin" }
+      },
+      "required": ["testId", "title", "category", "questionsCount", "durationMinutes", "difficulty", "questions", "createdAt"]
+    },
+    "UserAttempt": {
+      "title": "UserAttempt",
+      "description": "A record of a mock test attempt submission containing section-level analytics and user choices",
+      "type": "object",
+      "properties": {
+        "attemptId": { "type": "string", "description": "Unique submission document identifier" },
+        "userId": { "type": "string", "description": "Corresponding student account ID" },
+        "testId": { "type": "string", "description": "Corresponding exam template ID" },
+        "testTitle": { "type": "string", "description": "Mock exam title at time of attempt" },
+        "category": { "type": "string", "description": "Indian exam category" },
+        "scoreSecured": { "type": "number", "description": "Total secure score" },
+        "maxScorePossible": { "type": "integer", "description": "Maximum marks possible" },
+        "accuracyPercent": { "type": "number", "description": "Calculated accuracy scale metric" },
+        "percentileSecured": { "type": "number", "description": "Comparative user percentile score" },
+        "timeSpentSeconds": { "type": "integer", "description": "Time spent in seconds in test browser" },
+        "answers": {
+          "type": "array",
+          "description": "List of user responses mapped with visual details"
+        },
+        "takenAt": { "type": "string", "format": "date-time", "description": "Timestamp of exam completion" }
+      },
+      "required": ["attemptId", "userId", "testId", "testTitle", "category", "scoreSecured", "maxScorePossible", "accuracyPercent", "timeSpentSeconds", "takenAt"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Information about manually-designated administrative members",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Unique administrative user ID" },
+        "email": { "type": "string", "format": "email", "description": "Verified administrator email" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Admin designation date" }
+      },
+      "required": ["userId", "email"]
+    }
+  },
+  "firestore": {
+    "/admins/{userId}": {
+      "schema": "Admin",
+      "description": "List of manual administrative accounts permitted write access to main exam templates"
+    },
+    "/users/{userId}": {
+      "schema": "Profile",
+      "description": "Student public statistical profile dashboard record"
+    },
+    "/users/{userId}/private/info": {
+      "schema": "PrivateInfo",
+      "description": "Direct personal details containing subscription keys and high-security details"
+    },
+    "/mockTests/{testId}": {
+      "schema": "MockTest",
+      "description": "Admin managed mock examination syllabus paper collection"
+    },
+    "/users/{userId}/attempts/{attemptId}": {
+      "schema": "UserAttempt",
+      "description": "Detailed log history entries for self study progress, stats and charts"
+    }
+  }
+}

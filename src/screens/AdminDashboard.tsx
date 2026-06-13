@@ -1,0 +1,666 @@
+import React, { useState, useEffect } from "react";
+import { useAuth } from "../context/AuthContext";
+import { DEFAULT_MOCK_TESTS } from "../data/mockTestData";
+import { MockTest, Question } from "../types";
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  getDocs, 
+  deleteDoc,
+  onSnapshot 
+} from "firebase/firestore";
+import { db, handleFirestoreError, OperationType } from "../firebase";
+import { 
+  ShieldCheck, 
+  Plus, 
+  Trash2, 
+  LineChart, 
+  Users, 
+  Layers, 
+  Activity, 
+  DollarSign, 
+  X, 
+  Check, 
+  AlertCircle,
+  HelpCircle
+} from "lucide-react";
+import { 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  ResponsiveContainer 
+} from "recharts";
+
+export default function AdminDashboard() {
+  const { user, profile, isAdmin } = useAuth();
+  
+  // Custom uploaded mock tests
+  const [customTests, setCustomTests] = useState<MockTest[]>([]);
+  const [loadingTests, setLoadingTests] = useState<boolean>(true);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+
+  // Form states for new test
+  const [testTitle, setTestTitle] = useState("");
+  const [testCategory, setTestCategory] = useState("UPSC");
+  const [testDuration, setTestDuration] = useState(10);
+  const [testDifficulty, setTestDifficulty] = useState<"Easy" | "Medium" | "Hard">("Medium");
+  
+  // Dynamic questions lists inside wizard
+  const [formQuestions, setFormQuestions] = useState<Omit<Question, "id">[]>([
+    {
+      questionText: "",
+      options: ["", "", "", ""],
+      correctOptionIndex: 0,
+      explanation: "",
+      subject: "Polity"
+    }
+  ]);
+
+  const [formError, setFormError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Load custom tests from Firestore /mockTests
+  useEffect(() => {
+    const path = "mockTests";
+    try {
+      const unsub = onSnapshot(collection(db, "mockTests"), (snap) => {
+        const tests: MockTest[] = [];
+        snap.forEach(d => {
+          tests.push(d.data() as MockTest);
+        });
+        setCustomTests(tests);
+        setLoadingTests(false);
+      }, (error) => {
+        handleFirestoreError(error, OperationType.LIST, path);
+      });
+      return () => unsub();
+    } catch (err) {
+      console.error("Failed to load custom tests: ", err);
+      setLoadingTests(false);
+    }
+  }, []);
+
+  const handleAddQuestionToForm = () => {
+    setFormQuestions(prev => [
+      ...prev,
+      {
+        questionText: "",
+        options: ["", "", "", ""],
+        correctOptionIndex: 0,
+        explanation: "",
+        subject: "Polity"
+      }
+    ]);
+  };
+
+  const handleRemoveQuestionFromForm = (index: number) => {
+    if (formQuestions.length > 1) {
+      setFormQuestions(prev => prev.filter((_, idx) => idx !== index));
+    }
+  };
+
+  const updateQuestionText = (index: number, val: string) => {
+    setFormQuestions(prev => {
+      const updated = [...prev];
+      updated[index].questionText = val;
+      return updated;
+    });
+  };
+
+  const updateOptionText = (qIndex: number, oIndex: number, val: string) => {
+    setFormQuestions(prev => {
+      const updated = [...prev];
+      const opts = [...updated[qIndex].options];
+      opts[oIndex] = val;
+      updated[qIndex].options = opts;
+      return updated;
+    });
+  };
+
+  const updateCorrectIdx = (qIndex: number, val: number) => {
+    setFormQuestions(prev => {
+      const updated = [...prev];
+      updated[qIndex].correctOptionIndex = val;
+      return updated;
+    });
+  };
+
+  const updateSubjectText = (qIndex: number, val: string) => {
+    setFormQuestions(prev => {
+      const updated = [...prev];
+      updated[qIndex].subject = val;
+      return updated;
+    });
+  };
+
+  const updateExplanationText = (qIndex: number, val: string) => {
+    setFormQuestions(prev => {
+      const updated = [...prev];
+      updated[qIndex].explanation = val;
+      return updated;
+    });
+  };
+
+  const handleSaveMockTest = async () => {
+    // Basic validation
+    if (!testTitle.trim()) {
+      setFormError("Test Title is required!");
+      return;
+    }
+
+    for (let i = 0; i < formQuestions.length; i++) {
+      const q = formQuestions[i];
+      if (!q.questionText.trim()) {
+        setFormError(`Question #${i + 1} is empty!`);
+        return;
+      }
+      for (let j = 0; j < q.options.length; j++) {
+        if (!q.options[j].trim()) {
+          setFormError(`Option ${String.fromCharCode(65 + j)} for Question #${i + 1} is empty!`);
+          return;
+        }
+      }
+    }
+
+    setFormError("");
+    setIsSaving(true);
+
+    try {
+      const compiledQuestions: Question[] = formQuestions.map((q, idx) => ({
+        id: `custom_q_${Date.now()}_${idx}`,
+        ...q
+      }));
+
+      const newTestId = `custom_test_${Date.now()}`;
+      const mockTestPayload: MockTest = {
+        testId: newTestId,
+        title: testTitle,
+        category: testCategory,
+        questionsCount: compiledQuestions.length,
+        durationMinutes: testDuration,
+        difficulty: testDifficulty,
+        questions: compiledQuestions,
+        createdAt: new Date().toISOString()
+      };
+
+      const path = `mockTests/${newTestId}`;
+      await setDoc(doc(db, "mockTests", newTestId), mockTestPayload);
+
+      // Reset modal state
+      setIsUploadModalOpen(false);
+      setTestTitle("");
+      setTestCategory("UPSC");
+      setTestDuration(10);
+      setTestDifficulty("Medium");
+      setFormQuestions([
+        {
+          questionText: "",
+          options: ["", "", "", ""],
+          correctOptionIndex: 0,
+          explanation: "",
+          subject: "Polity"
+        }
+      ]);
+
+    } catch (err) {
+      console.error("Error saving mock test: ", err);
+      setFormError("Unauthorized! Only verified Firestore Administrators can write test assets.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDeleteMockTest = async (targetTestId: string) => {
+    try {
+      await deleteDoc(doc(db, "mockTests", targetTestId));
+    } catch (err) {
+      console.error("Failed to delete mock asset: ", err);
+      alert("Unauthorized! Only verified Firestore Administrators have truncate privileges.");
+    }
+  };
+
+  // Simulated static income revenue metrics
+  const revenueData = [
+    { name: "Week 1", revenue: 45000 },
+    { name: "Week 2", revenue: 52000 },
+    { name: "Week 3", revenue: 49000 },
+    { name: "Week 4", revenue: 68000 },
+    { name: "Week 5", revenue: 75000 },
+    { name: "Week 6", revenue: 92000 }
+  ];
+
+  // Merge pre-loaded local mocks with custom uploaded Firestore mocks
+  const allAvailableMocks = [...DEFAULT_MOCK_TESTS, ...customTests];
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-20 text-center font-sans" id="admin-access-denied">
+        <div className="p-8 bg-[#161616] border border-[#2A2A2A] rounded-2xl shadow-xl flex flex-col items-center">
+          <div className="w-16 h-16 bg-[#2A1415] text-[#FF4D4F] rounded-full flex items-center justify-center mb-6 border border-[#FF4D4F]/20">
+            <X className="w-8 h-8" />
+          </div>
+          <h2 className="text-xl font-bold text-white mb-2 uppercase tracking-wide">Access Denied</h2>
+          <p className="text-slate-400 text-xs mb-8 leading-relaxed">
+            Unauthorized access. Only verified ElitePrep system administrators have clearance to view this configuration console.
+          </p>
+          <div className="text-[10px] font-mono text-slate-500 uppercase tracking-widest border-t border-[#2A2A2A] pt-4 w-full">
+            Security Clearance Code: 403_UNAUTHORIZED
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 font-sans text-slate-100 min-h-screen" id="admin-dashboard-screen">
+      
+      {/* Welcome Banner */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white mb-2 leading-none">
+              ElitePrep Admin Panel
+            </h1>
+            <span className="bg-purple-500/10 text-purple-400 text-xs px-2.5 py-0.5 rounded-full font-bold flex items-center gap-1 border border-purple-500/20">
+              <ShieldCheck className="w-3.5 h-3.5" /> SYSTEM OPERATOR
+            </span>
+          </div>
+          <p className="text-slate-400 text-sm">
+            Configure examination syllabus banks, monitor active subscriptions revenue, and manage system assets.
+          </p>
+        </div>
+
+        <button
+          onClick={() => setIsUploadModalOpen(true)}
+          className="px-5 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-sans font-bold text-xs rounded-2xl flex items-center justify-center gap-1.5 shadow"
+        >
+          <Plus className="w-4 h-4 text-slate-950" />
+          <span>Upload Mock Test</span>
+        </button>
+      </div>
+
+      {/* Admin stats widgets row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        
+        {/* Metric 1 */}
+        <div className="bg-slate-900 border border-slate-800/80 rounded-2xl p-5 flex items-center gap-4">
+          <div className="p-3.5 bg-blue-500/10 text-blue-400 rounded-2xl">
+            <Users className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest leading-none mb-1">TOTAL USERS</p>
+            <p className="text-2xl font-extrabold text-white">1,248,840</p>
+            <p className="text-[9px] text-slate-400 font-mono uppercase tracking-tight mt-1">+12% Growth this month</p>
+          </div>
+        </div>
+
+        {/* Metric 2 */}
+        <div className="bg-slate-900 border border-slate-800/80 rounded-2xl p-5 flex items-center gap-4">
+          <div className="p-3.5 bg-emerald-500/10 text-emerald-400 rounded-2xl">
+            <DollarSign className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest leading-none mb-1">TOTAL SALES</p>
+            <p className="text-2xl font-extrabold text-white">₹375,000</p>
+            <p className="text-[9px] text-slate-400 font-mono uppercase tracking-tight mt-1">Live from Razorpay configs</p>
+          </div>
+        </div>
+
+        {/* Metric 3 */}
+        <div className="bg-slate-900 border border-slate-800/80 rounded-2xl p-5 flex items-center gap-4">
+          <div className="p-3.5 bg-yellow-500/10 text-yellow-400 rounded-2xl">
+            <Layers className="w-6 h-6" />
+          </div>
+          <div>
+            <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest leading-none mb-1">LIVE PAPERS</p>
+            <p className="text-2xl font-extrabold text-white">{allAvailableMocks.length}</p>
+            <p className="text-[9px] text-slate-400 font-mono uppercase tracking-tight mt-1">{DEFAULT_MOCK_TESTS.length} Seeded &middot; {customTests.length} Custom</p>
+          </div>
+        </div>
+
+        {/* Metric 4 */}
+        <div className="bg-slate-900 border border-slate-800/80 rounded-2xl p-5 flex items-center gap-4">
+          <div className="p-3.5 bg-purple-500/10 text-purple-400 rounded-2xl">
+            <Activity className="w-6 h-6 animate-pulse" />
+          </div>
+          <div>
+            <p className="text-[10px] text-slate-500 font-mono uppercase tracking-widest leading-none mb-1">GATEWAY HEALTH</p>
+            <p className="text-2xl font-extrabold text-purple-400">NORMAL</p>
+            <p className="text-[9px] text-slate-400 font-mono uppercase tracking-tight mt-1">Latency: 28ms</p>
+          </div>
+        </div>
+
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-10">
+        
+        {/* Left Column: Revenue trends line charts */}
+        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-3xl p-6 text-slate-100">
+          <h3 className="text-md font-bold text-white mb-6 flex items-center gap-2">
+            <LineChart className="w-4 h-4 text-emerald-400" /> Platform Revenue trends (Weekly)
+          </h3>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={revenueData}>
+                <defs>
+                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="name" stroke="#64748b" style={{ fontSize: '10px' }} />
+                <YAxis stroke="#64748b" style={{ fontSize: '10px' }} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: "#020617", borderColor: "#1e293b", borderRadius: "12px", fontSize: "12px" }}
+                  itemStyle={{ color: "#10b981" }}
+                />
+                <Area type="monotone" dataKey="revenue" stroke="#10b981" fillOpacity={1} fill="url(#colorRevenue)" strokeWidth={2.5} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Right Column: Live activities */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6">
+          <h3 className="text-md font-bold text-white mb-4 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-emerald-400 animate-pulse" /> Live Administration Log
+          </h3>
+
+          <div className="space-y-4 max-h-[250px] overflow-y-auto pr-1">
+            <div className="p-3 bg-slate-950/40 rounded-xl border border-slate-850">
+              <p className="text-xs text-white leading-tight font-sans">**Profile Created**</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Aspirant Rahul signed-in under UPSC</p>
+              <span className="text-[9px] font-mono text-slate-550 uppercase">2 minutes ago</span>
+            </div>
+            <div className="p-3 bg-slate-950/40 rounded-xl border border-slate-850">
+              <p className="text-xs text-white leading-tight font-sans">**Mock Submitted**</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Attempt #custom_log registered</p>
+              <span className="text-[9px] font-mono text-slate-550 uppercase">10 minutes ago</span>
+            </div>
+            <div className="p-3 bg-slate-950/40 rounded-xl border border-slate-850">
+              <p className="text-xs text-purple-400 leading-tight font-sans">**Premium Activated**</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">UPI checkout success: ₹2999 confirmed</p>
+              <span className="text-[9px] font-mono text-slate-550 uppercase">24 minutes ago</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      {/* CRUD Test Syllabus list */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 font-sans">
+        <h3 className="text-lg font-bold text-white mb-1">Syllabus Test Assets (CRUD)</h3>
+        <p className="text-xs text-slate-500 mb-6 font-mono uppercase tracking-tight">Add or truncate mock exams dynamically on Firestore</p>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-800 text-slate-500 uppercase tracking-wider font-mono">
+                <th className="py-3 px-4">Exam ID</th>
+                <th className="py-3 px-4">Category</th>
+                <th className="py-3 px-4">Title</th>
+                <th className="py-3 px-4">Questions</th>
+                <th className="py-3 px-4">Difficulty</th>
+                <th className="py-3 px-4">Source Type</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 font-sans">
+              {allAvailableMocks.map((mock) => {
+                const isCustom = mock.testId.startsWith("custom_test");
+                return (
+                  <tr key={mock.testId} className="hover:bg-slate-950/10">
+                    <td className="py-3.5 px-4 font-mono text-[10px] text-slate-400">{mock.testId.substring(0, 15)}</td>
+                    <td className="py-3.5 px-4">
+                      <span className="bg-slate-950 text-teal-400 px-2 py-0.5 rounded border border-teal-500/10 font-mono text-[10px]">
+                        {mock.category}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-white font-medium">{mock.title}</td>
+                    <td className="py-3.5 px-4 text-slate-300 font-mono font-bold">{mock.questionsCount} items</td>
+                    <td className="py-3.5 px-4 text-slate-400">{mock.difficulty}</td>
+                    <td className="py-3.5 px-4">
+                      {isCustom ? (
+                        <span className="text-emerald-400 text-[10px] font-mono leading-none">&bull; FIRESTORE LIVE</span>
+                      ) : (
+                        <span className="text-slate-500 text-[10px] font-mono leading-none">&bull; SYSTEM LOCAL</span>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4 text-right">
+                      {isCustom ? (
+                        <button
+                          onClick={() => handleDeleteMockTest(mock.testId)}
+                          className="p-1 px-2.2 bg-red-950/20 text-rose-400 hover:text-rose-300 border border-red-500/10 rounded font-mono text-[10px] uppercase flex items-center gap-1.5 ml-auto cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" /> Truncate
+                        </button>
+                      ) : (
+                        <span className="text-slate-600 text-[10px] uppercase font-mono tracking-wider">System Locked</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Upload Test Wizard Modal Form */}
+      {isUploadModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 font-sans text-slate-100">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto shadow-2xl relative">
+            
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-slate-900 z-10">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" /> Syllabus Uploader Wizard
+                </h3>
+                <p className="text-xs text-slate-400">Publish standard examination papers securely to Firestore.</p>
+              </div>
+
+              <button 
+                onClick={() => setIsUploadModalOpen(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              
+              {formError && (
+                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-3 text-rose-400 text-xs">
+                  <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
+              {/* General Test Parameters */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1.5">Mock Title</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. UPSC GS Paper I - Focus Section"
+                    value={testTitle}
+                    onChange={(e) => setTestTitle(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-850 hover:border-slate-850/80 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1.5">Category Stream</label>
+                  <select 
+                    value={testCategory}
+                    onChange={(e) => setTestCategory(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2.5 text-xs text-emerald-400 font-semibold focus:outline-none"
+                  >
+                    <option value="UPSC">UPSC Civil Services</option>
+                    <option value="SSC">SSC CGL</option>
+                    <option value="Banking">Banking (IBPS PO)</option>
+                    <option value="Railways">Railways (RRB NTPC)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1.5">Timer Allocation (Minutes)</label>
+                  <input 
+                    type="number" 
+                    value={testDuration}
+                    onChange={(e) => setTestDuration(parseInt(e.target.value) || 1)}
+                    className="w-full bg-slate-950 border border-slate-850 hover:border-slate-850/80 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-mono text-slate-400 uppercase tracking-widest block mb-1.5">Difficulty Profile</label>
+                  <select 
+                    value={testDifficulty}
+                    onChange={(e) => setTestDifficulty(e.target.value as any)}
+                    className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none"
+                  >
+                    <option value="Easy">Easy</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Hard">Hard</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Dynamic Questions Builder Panel */}
+              <div className="border-t border-slate-850 pt-5">
+                <div className="flex justify-between items-end mb-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Questions Pool: ({formQuestions.length})</h4>
+                    <p className="text-[10px] text-slate-500 font-mono uppercase mt-0.5">Define choice arrays and model descriptions</p>
+                  </div>
+                  <button
+                    onClick={handleAddQuestionToForm}
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-bold text-white flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Next Question Item
+                  </button>
+                </div>
+
+                {/* Question items array */}
+                <div className="space-y-6">
+                  {formQuestions.map((q, qIdx) => (
+                    <div key={qIdx} className="p-5 bg-slate-950/40 border border-slate-850/80 rounded-2xl relative">
+                      {formQuestions.length > 1 && (
+                        <button
+                          onClick={() => handleRemoveQuestionFromForm(qIdx)}
+                          className="absolute top-4 right-4 text-rose-400 hover:text-rose-300 text-xs font-mono uppercase tracking-wider bg-rose-950/20 border border-rose-500/10 p-1 rounded"
+                        >
+                          Remove
+                        </button>
+                      )}
+
+                      <span className="font-mono text-xs font-bold bg-slate-950 px-2 py-0.5 rounded border border-slate-850 text-slate-500 w-fit block mb-4">QUESTION #{qIdx + 1}</span>
+
+                      {/* Question Content */}
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-[9px] font-mono text-slate-400 uppercase tracking-widest block mb-1">Question Description</label>
+                          <textarea 
+                            rows={2}
+                            placeholder="e.g. Which of the following is correct regarding the President of India's executive powers?"
+                            value={q.questionText}
+                            onChange={(e) => updateQuestionText(qIdx, e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                          />
+                        </div>
+
+                        {/* Subject Badge */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[9px] font-mono text-slate-400 uppercase tracking-widest block mb-1">Subject Field</label>
+                            <input 
+                              type="text" 
+                              placeholder="e.g. Polity, History, Science"
+                              value={q.subject}
+                              onChange={(e) => updateSubjectText(qIdx, e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-xs text-white focus:outline-none text-emerald-400 font-semibold"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[9px] font-mono text-slate-400 uppercase tracking-widest block mb-1">Correct Choice Index</label>
+                            <select 
+                              value={q.correctOptionIndex}
+                              onChange={(e) => updateCorrectIdx(qIdx, parseInt(e.target.value))}
+                              className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-xs text-white focus:outline-none font-bold"
+                            >
+                              <option value={0}>Option A</option>
+                              <option value={1}>Option B</option>
+                              <option value={2}>Option C</option>
+                              <option value={3}>Option D</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Four Options Inputs */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {q.options.map((opt, oIdx) => (
+                            <div key={oIdx}>
+                              <label className="text-[9px] font-mono text-slate-400 uppercase tracking-widest block mb-0.5">Option {String.fromCharCode(65 + oIdx)}</label>
+                              <input 
+                                type="text" 
+                                placeholder={`Enter option text for ${String.fromCharCode(65 + oIdx)}`}
+                                value={opt}
+                                onChange={(e) => updateOptionText(qIdx, oIdx, e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                              />
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Solution references explanation */}
+                        <div>
+                          <label className="text-[9px] font-mono text-slate-400 uppercase tracking-widest block mb-1">Technical Explanation Model</label>
+                          <textarea 
+                            rows={2}
+                            placeholder="Provide deep technical referencing model..."
+                            value={q.explanation}
+                            onChange={(e) => updateExplanationText(qIdx, e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-850 rounded-xl px-3 py-2 text-xs text-white focus:outline-none"
+                          />
+                        </div>
+
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className="p-4 bg-slate-900 border-t border-slate-800 flex items-center justify-end gap-3 sticky bottom-0 z-10">
+              <button 
+                onClick={() => setIsUploadModalOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-bold text-slate-300"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSaveMockTest}
+                disabled={isSaving}
+                className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1 px-5"
+              >
+                <Check className="w-4 h-4 text-slate-950" />
+                {isSaving ? "Publishing..." : "Publish Syllabus Mock"}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

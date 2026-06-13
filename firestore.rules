@@ -1,0 +1,161 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Catch-all Safety Net: Deny all access by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- REUSABLE SECURITY PRIMITIVES & HELPERS ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == "admin@eliteprep.com" ||
+        request.auth.token.email == "rahul@eliteprep.com" ||
+        request.auth.token.email == "ayusharora408@gmail.com" ||
+        request.auth.token.email == "ddg27874@gmail.com"
+      );
+    }
+
+    // --- ENTITY SPECIFIC SCHEMAS & VALIDATION BLUEPRINTS ---
+
+    // Blueprint Validation for Admin Entity
+    function isValidAdmin(data) {
+      return data.keys().hasAll(['userId', 'email', 'createdAt']) &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.email is string && data.email.size() <= 256;
+    }
+
+    // Blueprint Validation for Profile Entity
+    function isValidProfile(data) {
+      return data.keys().hasAll(['userId', 'name', 'examCategory', 'avatarUrl', 'totalTests', 'averageAccuracy', 'streakDays', 'predictedRank', 'updatedAt']) &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.examCategory is string && data.examCategory.size() <= 50 &&
+             data.avatarUrl is string && data.avatarUrl.size() <= 200 &&
+             data.totalTests is int && data.totalTests >= 0 &&
+             (data.averageAccuracy is int || data.averageAccuracy is float) && data.averageAccuracy >= 0.0 && data.averageAccuracy <= 100.0 &&
+             data.streakDays is int && data.streakDays >= 0 &&
+             data.predictedRank is int && data.predictedRank >= 0;
+    }
+
+    // Blueprint Validation for PrivateInfo Entity
+    function isValidPrivateInfo(data) {
+      return data.email is string && data.email.size() <= 256 &&
+             data.tier is string && (data.tier == 'free' || data.tier == 'premium') &&
+             data.createdAt is string;
+    }
+
+    // Blueprint Validation for MockTest Entity
+    function isValidMockTest(data) {
+      return data.keys().hasAll(['testId', 'title', 'category', 'questionsCount', 'durationMinutes', 'difficulty', 'questions', 'createdAt']) &&
+             data.testId is string && data.testId.size() <= 128 &&
+             data.title is string && data.title.size() <= 200 &&
+             data.category is string && data.category.size() <= 50 &&
+             data.questionsCount is int && data.questionsCount >= 0 &&
+             data.durationMinutes is int && data.durationMinutes >= 0 &&
+             data.difficulty is string && (data.difficulty == 'Easy' || data.difficulty == 'Medium' || data.difficulty == 'Hard') &&
+             data.questions is list && data.questions.size() <= 200;
+    }
+
+    // Blueprint Validation for UserAttempt Entity
+    function isValidUserAttempt(data) {
+      return data.keys().hasAll(['attemptId', 'userId', 'testId', 'testTitle', 'category', 'scoreSecured', 'maxScorePossible', 'accuracyPercent', 'timeSpentSeconds', 'takenAt', 'answers']) &&
+             data.attemptId is string && data.attemptId.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.testId is string && data.testId.size() <= 128 &&
+             data.testTitle is string && data.testTitle.size() <= 200 &&
+             data.category is string && data.category.size() <= 50 &&
+             (data.scoreSecured is int || data.scoreSecured is float) && data.scoreSecured >= 0 &&
+             data.maxScorePossible is int && data.maxScorePossible >= 0 &&
+             (data.accuracyPercent is int || data.accuracyPercent is float) && data.accuracyPercent >= 0.0 && data.accuracyPercent <= 100.0 &&
+             data.timeSpentSeconds is int && data.timeSpentSeconds >= 0 &&
+             data.answers is list;
+    }
+
+    // --- FIRESTORE path rules matching definitions ---
+
+    // 0. Manual System Administration Rules & Admin Profiles
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidId(userId) && (isValidAdmin(incoming()) || isValidProfile(incoming()));
+      allow update: if (isOwner(userId) || isAdmin()) && isValidId(userId) && (isValidAdmin(incoming()) || isValidProfile(incoming()));
+      allow delete: if isAdmin();
+    }
+
+    // 0b. Private details split schema rules for admins
+    match /admins/{userId}/private/info {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidPrivateInfo(incoming());
+      allow update: if (isOwner(userId) || isAdmin()) && isValidId(userId) &&
+                      incoming().email is string && incoming().email.size() <= 256 &&
+                      incoming().tier is string && (incoming().tier == 'free' || incoming().tier == 'premium') &&
+                      incoming().createdAt == existing().createdAt &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['email', 'tier', 'planExpiresAt']);
+      allow delete: if isAdmin();
+    }
+
+    // 1. Users (Normal Student Profiles) Rules
+    match /users/{userId} {
+      allow read: if isSignedIn(); // Allow listing for Leaderboard comparison
+      allow create: if isOwner(userId) && isValidId(userId) && isValidProfile(incoming()) && incoming().userId == request.auth.uid;
+      allow update: if isOwner(userId) && isValidId(userId) && isValidProfile(incoming()) && incoming().userId == existing().userId &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['name', 'examCategory', 'avatarUrl', 'totalTests', 'averageAccuracy', 'averagePercentile', 'streakDays', 'predictedRank', 'updatedAt']);
+      allow delete: if isAdmin();
+    }
+
+    // 2. Private details split schema rules for normal users
+    match /users/{userId}/private/info {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidPrivateInfo(incoming());
+      allow update: if (isOwner(userId) || isAdmin()) && isValidId(userId) &&
+                      incoming().email is string && incoming().email.size() <= 256 &&
+                      incoming().tier is string && (incoming().tier == 'free' || incoming().tier == 'premium') &&
+                      incoming().createdAt == existing().createdAt &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['email', 'tier', 'planExpiresAt']);
+      allow delete: if isAdmin();
+    }
+
+    // 3. Mock Examination tests database rules
+    match /mockTests/{testId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() && isValidId(testId) && isValidMockTest(incoming());
+      allow update: if isAdmin() && isValidId(testId) && isValidMockTest(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // 4. Detailed history log attempts subcollections
+    match /users/{userId}/attempts/{attemptId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidId(attemptId) &&
+                      isValidUserAttempt(incoming()) && incoming().userId == request.auth.uid;
+      allow update: if isOwner(userId) && isValidId(userId) && isValidId(attemptId) &&
+                      isValidUserAttempt(incoming()) && incoming().userId == existing().userId &&
+                      incoming().takenAt == existing().takenAt &&
+                      incoming().diff(existing()).affectedKeys().hasOnly(['scoreSecured', 'accuracyPercent', 'timeSpentSeconds', 'answers']);
+      allow delete: if isAdmin();
+    }
+  }
+}
