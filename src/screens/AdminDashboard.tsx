@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { GoogleGenAI, Type } from "@google/genai";
 import { useAuth } from "../context/AuthContext";
 import { DEFAULT_MOCK_TESTS } from "../data/mockTestData";
 import { MockTest, Question, PrepVideo } from "../types";
@@ -243,99 +242,18 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
     setIsExtracting(true);
     try {
       let data: any = null;
-      let usedClientFallback = false;
 
-      try {
-        const response = await fetch("/api/gemini/parse-test", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rawText: rawPasteText, category: testCategory })
-        });
-        
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-          data = await response.json();
-        } else {
-          // If the server-side API is missing or returns HTML (e.g. Netlify static hosting)
-          usedClientFallback = true;
-        }
-      } catch (fetchErr) {
-        console.warn("Server-side Gemini endpoint inaccessible, attempting browser-side parsing...", fetchErr);
-        usedClientFallback = true;
+      const response = await fetch("/api/gemini/parse-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rawText: rawPasteText, category: testCategory })
+      });
+
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("AI parsing service is unavailable. Please ensure GEMINI_API_KEY is set in Netlify Environment Variables.");
       }
-
-      if (usedClientFallback) {
-        console.log("Using secure client-side parse with fallback...");
-        const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "AQ.Ab8RN6Lvo5abh84b525SXIlqYoB_GgdCQPEw8VUcx5wptZJ3Bw";
-        
-        let clientAi;
-        if (apiKey.startsWith("AIzaSy")) {
-          clientAi = new GoogleGenAI({
-            apiKey: apiKey,
-            httpOptions: {
-              headers: {
-                "User-Agent": "aistudio-build",
-              },
-            },
-          });
-        } else {
-          // If the key is formatted like an OAuth access token, pass it as Bearer token
-          clientAi = new GoogleGenAI({
-            apiKey: "",
-            httpOptions: {
-              headers: {
-                "User-Agent": "aistudio-build",
-                "Authorization": `Bearer ${apiKey}`,
-              },
-            },
-          });
-        }
-
-        const systemPrompt = `You are an expert EdTech exam papers extractor.
-Extract a list of realistic multiple choice questions from the provided textbook notes, syllabus, or exam transcript text.
-Ensure each question has exactly 4 options, a correct choice index (0 for Option A, 1 for B, 2 for C, 3 for D), an explanation, and a subject matching study streams.
-The target exam category stream is ${testCategory || "UPSC"}.`;
-
-        const userPrompt = `Parse the following text and extract realistic mock questions.
-Output must follow the specified JSON schema.
-If the text does not contain explicit options, generate high-quality options, correct indices, and clear conceptual explanations from your knowledge base based on the topics discussed in the text.
-
-Text to parse:
-"""
-${rawPasteText}
-"""`;
-
-        const responseJson = await clientAi.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: userPrompt,
-          config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.ARRAY,
-              description: "List of extracted questions",
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  questionText: { type: Type.STRING, description: "The single-choice multiple choice question statement." },
-                  options: {
-                    type: Type.ARRAY,
-                    items: { type: Type.STRING },
-                    description: "Exactly four multiple choice options."
-                  },
-                  correctOptionIndex: { type: Type.INTEGER, description: "Index of the correct option (0, 1, 2, or 3)." },
-                  explanation: { type: Type.STRING, description: "Complete educational solution or reference explanation." },
-                  subject: { type: Type.STRING, description: "Subject topic label, e.g. 'Polity', 'Physics', 'History'." }
-                },
-                required: ["questionText", "options", "correctOptionIndex", "explanation", "subject"]
-              }
-            }
-          }
-        });
-
-        const parsedResult = JSON.parse(responseJson.text || "[]");
-        data = { success: true, questions: parsedResult };
-      }
+      data = await response.json();
 
       if (data && data.success && data.questions && data.questions.length > 0) {
         setFormQuestions(data.questions);
