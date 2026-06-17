@@ -689,7 +689,7 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
                         controls
                         autoPlay
                         className="absolute inset-0 w-full h-full object-contain bg-black"
-                        referrerPolicy="no-referrer"
+                        referrerPolicy="strict-origin-when-cross-origin"
                       />
                     ) : (
                       <iframe
@@ -698,7 +698,7 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
                         className="absolute inset-0 w-full h-full border-none"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                         allowFullScreen
-                        referrerPolicy="no-referrer"
+                        referrerPolicy="strict-origin-when-cross-origin"
                       />
                     )
                   ) : (
@@ -880,7 +880,6 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
 
           <div className="max-w-4xl mx-auto bg-[#111111] border border-[#222222] p-8 md:p-12 relative">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center lg:gap-12">
-              
               {/* Photo & Video Playback */}
               <div className="relative aspect-video md:aspect-square bg-black border border-[#222] flex items-center justify-center overflow-hidden group">
                 {currentTestimonial.videoUrl && activeVideoEmbed === currentTestimonial.id ? (
@@ -890,7 +889,7 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
                       controls
                       autoPlay
                       className="w-full h-full object-contain bg-black"
-                      referrerPolicy="no-referrer"
+                      referrerPolicy="strict-origin-when-cross-origin"
                     />
                   ) : (
                     <iframe 
@@ -899,6 +898,7 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
                       className="w-full h-full border-none"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                       allowFullScreen
+                      referrerPolicy="strict-origin-when-cross-origin"
                     />
                   )
                 ) : (

@@ -38,7 +38,7 @@ import {
   ResponsiveContainer 
 } from "recharts";
 
-export default function AdminDashboard({ allPrepVideos }: { allPrepVideos?: PrepVideo[] }) {
+export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPrepVideos?: PrepVideo[], allMockTests?: MockTest[] }) {
   const { user, profile, isAdmin } = useAuth();
   
   // Custom uploaded mock tests
@@ -262,11 +262,22 @@ export default function AdminDashboard({ allPrepVideos }: { allPrepVideos?: Prep
   };
 
   const handleDeleteMockTest = async (targetTestId: string) => {
-    try {
-      await deleteDoc(doc(db, "mockTests", targetTestId));
-    } catch (err) {
-      console.error("Failed to delete mock asset: ", err);
-      alert("Unauthorized! Only verified Firestore Administrators have truncate privileges.");
+    const isCustom = targetTestId.startsWith("custom_test_");
+    const label = isCustom ? "custom exam" : "default system exam";
+    if (window.confirm(`Are you sure you want to delete this ${label}?`)) {
+      try {
+        if (isCustom) {
+          await deleteDoc(doc(db, "mockTests", targetTestId));
+        } else {
+          await setDoc(doc(db, "deletedAssets", targetTestId), {
+            deleted: true,
+            deletedAt: new Date().toISOString()
+          });
+        }
+      } catch (err) {
+        console.error("Failed to delete mock asset: ", err);
+        alert("Unauthorized! Only verified Firestore Administrators have truncate privileges.");
+      }
     }
   };
 
@@ -329,14 +340,22 @@ export default function AdminDashboard({ allPrepVideos }: { allPrepVideos?: Prep
   };
 
   const handleDeletePrepVideo = async (targetVideoId: string) => {
-    const path = "prepVideos";
-    if (window.confirm("Are you sure you want to delete this study video?")) {
+    const isCustom = targetVideoId.startsWith("custom_video_");
+    const label = isCustom ? "custom study video" : "default system video";
+    if (window.confirm(`Are you sure you want to delete this ${label}?`)) {
       try {
-        await deleteDoc(doc(db, "prepVideos", targetVideoId));
+        if (isCustom) {
+          await deleteDoc(doc(db, "prepVideos", targetVideoId));
+        } else {
+          await setDoc(doc(db, "deletedAssets", targetVideoId), {
+            deleted: true,
+            deletedAt: new Date().toISOString()
+          });
+        }
       } catch (err: any) {
         console.warn("Failed to delete prep video: ", err);
         try {
-          handleFirestoreError(err, OperationType.DELETE, `${path}/${targetVideoId}`);
+          handleFirestoreError(err, OperationType.DELETE, `prepVideos/${targetVideoId}`);
         } catch (innerErr: any) {
           alert("Error: " + innerErr.message);
         }
@@ -382,8 +401,8 @@ export default function AdminDashboard({ allPrepVideos }: { allPrepVideos?: Prep
     { name: "Week 6", revenue: 92000 }
   ];
 
-  // Merge pre-loaded local mocks with custom uploaded Firestore mocks
-  const allAvailableMocks = [...DEFAULT_MOCK_TESTS, ...customTests];
+  // Merge pre-loaded local mocks with custom uploaded Firestore mocks (using filtered list from props)
+  const allAvailableMocks = allMockTests || [...DEFAULT_MOCK_TESTS, ...customTests];
 
   if (!isAdmin) {
     return (
@@ -580,16 +599,12 @@ export default function AdminDashboard({ allPrepVideos }: { allPrepVideos?: Prep
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      {isCustom ? (
-                        <button
-                          onClick={() => handleDeleteMockTest(mock.testId)}
-                          className="p-1 px-2.2 bg-red-950/20 text-rose-400 hover:text-rose-300 border border-red-500/10 rounded font-mono text-[10px] uppercase flex items-center gap-1.5 ml-auto cursor-pointer"
-                        >
-                          <Trash2 className="w-3 h-3" /> Truncate
-                        </button>
-                      ) : (
-                        <span className="text-slate-600 text-[10px] uppercase font-mono tracking-wider">System Locked</span>
-                      )}
+                      <button
+                        onClick={() => handleDeleteMockTest(mock.testId)}
+                        className="p-1 px-2.2 bg-red-950/20 hover:bg-rose-950/20 text-rose-400 hover:text-rose-300 border border-red-500/10 rounded font-mono text-[10px] uppercase flex items-center gap-1.5 ml-auto cursor-pointer transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" /> Truncate
+                      </button>
                     </td>
                   </tr>
                 );
@@ -750,17 +765,13 @@ export default function AdminDashboard({ allPrepVideos }: { allPrepVideos?: Prep
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      {isCustom ? (
-                        <button
-                          type="button"
-                          onClick={() => handleDeletePrepVideo(video.videoId)}
-                          className="p-1 px-2.2 text-rose-400 hover:text-rose-300 hover:bg-rose-950/20 border border-red-500/10 rounded font-mono text-[10px] uppercase flex items-center gap-1 ml-auto cursor-pointer"
-                        >
-                          <Trash2 className="w-3 h-3" /> Truncate
-                        </button>
-                      ) : (
-                        <span className="text-slate-600 text-[10px] uppercase font-mono tracking-wider">Default Locked</span>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePrepVideo(video.videoId)}
+                        className="p-1 px-2.2 text-rose-400 hover:text-rose-300 hover:bg-rose-950/20 border border-red-500/10 rounded font-mono text-[10px] uppercase flex items-center gap-1 ml-auto cursor-pointer transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" /> Truncate
+                      </button>
                     </td>
                   </tr>
                 );

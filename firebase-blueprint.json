@@ -98,6 +98,16 @@
         "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
       },
       "required": ["videoId", "title", "description", "category", "videoUrl", "durationText", "createdAt"]
+    },
+    "DeletedAsset": {
+      "title": "DeletedAsset",
+      "description": "Identifier tracking corresponding system local assets which are deleted / hidden by an Admin dynamically",
+      "type": "object",
+      "properties": {
+        "deleted": { "type": "boolean", "description": "Flag indicating state of deletion" },
+        "deletedAt": { "type": "string", "format": "date-time", "description": "Timestamp of state change" }
+      },
+      "required": ["deleted", "deletedAt"]
     }
   },
   "firestore": {
@@ -124,6 +134,10 @@
     "/prepVideos/{videoId}": {
       "schema": "PrepVideo",
       "description": "Admin managed exam preparation high-quality lectures and videos collection"
+    },
+    "/deletedAssets/{assetId}": {
+      "schema": "DeletedAsset",
+      "description": "Real-time records tracking soft deleted default system local exams or videocasts"
     }
   }
 }

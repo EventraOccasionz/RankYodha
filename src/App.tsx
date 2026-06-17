@@ -25,6 +25,7 @@ export function StandardMain() {
   // Real-time custom mock tests from Firestore
   const [customTests, setCustomTests] = useState<MockTest[]>([]);
   const [customVideos, setCustomVideos] = useState<PrepVideo[]>([]);
+  const [deletedAssetIds, setDeletedAssetIds] = useState<string[]>([]);
 
   // Auto-seed collection if empty to force physical creation in Firebase and show in console
   useEffect(() => {
@@ -93,6 +94,28 @@ export function StandardMain() {
     }
   }, [loading, user]);
 
+  // Real-time deleted assets from Firestore
+  useEffect(() => {
+    if (loading || !user || user.uid.startsWith("virtual_sandbox_")) {
+      setDeletedAssetIds([]);
+      return;
+    }
+    try {
+      const unsub = onSnapshot(collection(db, "deletedAssets"), (snap) => {
+        const ids: string[] = [];
+        snap.forEach(d => {
+          ids.push(d.id);
+        });
+        setDeletedAssetIds(ids);
+      }, (err) => {
+        console.warn("Firestore onSnapshot error on deletedAssets collection:", err);
+      });
+      return () => unsub();
+    } catch (err) {
+      console.warn("Failed to set up real-time deleted assets subscriber:", err);
+    }
+  }, [loading, user]);
+
   // Consolidate static and real-time custom mock tests
   const allMockTests = useMemo(() => {
     const combined = [...DEFAULT_MOCK_TESTS];
@@ -101,8 +124,8 @@ export function StandardMain() {
         combined.push(ct);
       }
     });
-    return combined;
-  }, [customTests]);
+    return combined.filter(t => !deletedAssetIds.includes(t.testId));
+  }, [customTests, deletedAssetIds]);
 
   // Consolidate static and real-time custom prep videos (real-time uploaded videos show up on top!)
   const allPrepVideos = useMemo(() => {
@@ -112,8 +135,8 @@ export function StandardMain() {
         combined.push(sv);
       }
     });
-    return combined;
-  }, [customVideos]);
+    return combined.filter(v => !deletedAssetIds.includes(v.videoId));
+  }, [customVideos, deletedAssetIds]);
 
   const renderActiveScreen = () => {
     switch (screen) {
@@ -159,7 +182,7 @@ export function StandardMain() {
       case "pricing":
         return <PricingScreen setScreen={setScreen} allMockTests={allMockTests} initialSelectedTestId={selectedTestId} setSelectedTestId={setSelectedTestId} />;
       case "admin":
-        return <AdminDashboard allPrepVideos={allPrepVideos} />;
+        return <AdminDashboard allPrepVideos={allPrepVideos} allMockTests={allMockTests} />;
       default:
         return <LandingPage setScreen={setScreen} setSelectedTestId={setSelectedTestId} onOpenAuth={() => setAuthModalOpen(true)} allMockTests={allMockTests} allPrepVideos={allPrepVideos} />;
     }

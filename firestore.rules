@@ -108,6 +108,13 @@ service cloud.firestore {
              data.videoUrl is string && data.videoUrl.size() <= 2000;
     }
 
+    // Blueprint Validation for DeletedAsset Entity
+    function isValidDeletedAsset(data) {
+      return data.keys().hasAll(['deleted', 'deletedAt']) &&
+             data.deleted is bool &&
+             data.deletedAt is string && data.deletedAt.size() <= 128;
+    }
+
     // --- FIRESTORE path rules matching definitions ---
 
     // 0. Manual System Administration Rules & Admin Profiles
@@ -176,6 +183,13 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isSignedIn() && isValidId(videoId) && isValidPrepVideo(incoming());
       allow update: if isSignedIn() && isValidId(videoId) && isValidPrepVideo(incoming());
+      allow delete: if isSignedIn();
+    }
+
+    // 6. Deleted assets reference rules
+    match /deletedAssets/{assetId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(assetId) && isValidDeletedAsset(incoming());
       allow delete: if isSignedIn();
     }
   }
