@@ -246,6 +246,19 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rawText: rawPasteText, category: testCategory })
       });
+      
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error(
+          "The backend server could not be reached (returned HTML instead of JSON).\n\n" +
+          "ℹ️ NETLIFY DEPLOYMENT NOTE:\n" +
+          "Netlify web hosting is static-only by default and doesn't run the Node.js Express server process (server.ts).\n" +
+          "To use the Gemini AI features in production, you should either:\n" +
+          "1. Deploy to a full-stack platform like Google Cloud Run, Render, or Railway.\n" +
+          "2. Implement a Netlify Serverless Function under /netlify/functions/ to proxy requests to Gemini."
+        );
+      }
+
       const data = await response.json();
       if (data.success && data.questions && data.questions.length > 0) {
         setFormQuestions(data.questions);
@@ -254,8 +267,8 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
         setFormError(data.error || "Failed to extract valid questions from raw text.");
       }
     } catch (err: any) {
-      console.error(err);
-      setFormError("Network or server connection error during AI parsing.");
+      console.error("AI Extraction Error:", err);
+      setFormError(err.message || "Network or server connection error during AI parsing.");
     } finally {
       setIsExtracting(false);
     }
