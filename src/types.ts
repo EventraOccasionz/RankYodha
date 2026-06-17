@@ -33,6 +33,8 @@ export interface UserProfile {
 export interface PrivateUserInfo {
   email: string;
   tier: "free" | "premium";
+  purchasedSeries?: string[];
+  purchasedTestIds?: string[];
   planExpiresAt?: string;
   createdAt: string;
 }
@@ -57,4 +59,14 @@ export interface UserAttempt {
   percentileSecured?: number;
   takenAt: string;
   answers: UserAnswer[];
+}
+
+export interface PrepVideo {
+  videoId: string;
+  title: string;
+  description: string;
+  category: string; // UPSC, JEE, NEET, SSC, etc. OR General
+  videoUrl: string; // YouTube, MP4 or Vimeo URL
+  durationText: string;
+  createdAt: string;
 }

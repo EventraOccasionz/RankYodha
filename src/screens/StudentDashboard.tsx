@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { DEFAULT_MOCK_TESTS } from "../data/mockTestData";
 import { getUserAttempts } from "../lib/attempts";
-import { UserAttempt } from "../types";
+import { UserAttempt, MockTest } from "../types";
 import { 
   Flame, 
   Trophy, 
@@ -25,13 +25,16 @@ interface StudentDashboardProps {
   setSelectedTestId: (testId: string) => void;
   setSelectedAttempt: (attempt: UserAttempt) => void;
   onOpenAuth: () => void;
+  allMockTests?: MockTest[];
 }
 
-export default function StudentDashboard({ setScreen, setSelectedTestId, setSelectedAttempt, onOpenAuth }: StudentDashboardProps) {
+export default function StudentDashboard({ setScreen, setSelectedTestId, setSelectedAttempt, onOpenAuth, allMockTests }: StudentDashboardProps) {
   const { user, profile, privateInfo, updateUserChosenExam, upgradeToPremium } = useAuth();
   const [attempts, setAttempts] = useState<UserAttempt[]>([]);
   const [loadingAttempts, setLoadingAttempts] = useState<boolean>(true);
   const [editingExam, setEditingExam] = useState<boolean>(false);
+
+  const testsToUse = allMockTests || DEFAULT_MOCK_TESTS;
 
   // Load user attempts from Firestore
   useEffect(() => {
@@ -71,7 +74,7 @@ export default function StudentDashboard({ setScreen, setSelectedTestId, setSele
 
   // Get recommended mock test based on target exam
   const currentExamStream = profile?.examCategory || "UPSC";
-  const recommendedTest = DEFAULT_MOCK_TESTS.find(t => t.category === currentExamStream) || DEFAULT_MOCK_TESTS[0];
+  const recommendedTest = testsToUse.find(t => t.category === currentExamStream) || testsToUse[0];
 
   // Simulated leaderboard competitors
   const seedCompetitors = [
@@ -92,7 +95,7 @@ export default function StudentDashboard({ setScreen, setSelectedTestId, setSele
     attempts.forEach(att => {
       att.answers.forEach(ans => {
         // Find subject from mock list
-        const correspondingMock = DEFAULT_MOCK_TESTS.find(t => t.testId === att.testId);
+        const correspondingMock = testsToUse.find(t => t.testId === att.testId);
         const correctQ = correspondingMock?.questions.find(q => q.id === ans.questionId);
         if (correctQ) {
           const subj = correctQ.subject;
@@ -143,8 +146,13 @@ export default function StudentDashboard({ setScreen, setSelectedTestId, setSele
   const heatmapDays = getLast7Days();
 
   const handleStartExam = (testId: string) => {
+    const hasAccess = privateInfo?.tier === "premium" || (privateInfo?.purchasedTestIds || []).includes(testId);
     setSelectedTestId(testId);
-    setScreen("mock-test");
+    if (hasAccess) {
+      setScreen("mock-test");
+    } else {
+      setScreen("pricing");
+    }
   };
 
   const viewAttemptResult = (attempt: UserAttempt) => {
@@ -328,13 +336,22 @@ export default function StudentDashboard({ setScreen, setSelectedTestId, setSele
                 <span className="bg-[#0A0A0A] px-2 py-0.5 border border-[#2A2A2A]">DIFFICULTY: {recommendedTest.difficulty.toUpperCase()}</span>
               </div>
             </div>
-            <button
-              onClick={() => handleStartExam(recommendedTest.testId)}
-              className="px-6 py-4 w-full sm:w-auto text-nowrap bg-[#FF3B3F] hover:bg-white text-white hover:text-black font-bold text-xs uppercase tracking-widest rounded-none border border-[#FF3B3F] hover:border-white transition-all flex items-center justify-center gap-1.5"
-            >
-              <span>Launch Mock Test</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            {(() => {
+              const hasAccess = privateInfo?.tier === "premium" || (privateInfo?.purchasedTestIds || []).includes(recommendedTest.testId);
+              return (
+                <button
+                  onClick={() => handleStartExam(recommendedTest.testId)}
+                  className={`px-6 py-4 w-full sm:w-auto text-nowrap font-bold text-xs uppercase tracking-widest rounded-none border transition-all flex items-center justify-center gap-1.5 ${
+                    hasAccess 
+                      ? "bg-[#FF3B3F] hover:bg-white text-white hover:text-black border-[#FF3B3F] hover:border-white" 
+                      : "bg-transparent hover:bg-[#FF3B3F] text-[#FF3B3F] hover:text-white border-[#FF3B3F]"
+                  }`}
+                >
+                  <span>{hasAccess ? "Launch Mock Test" : "Buy Mock (₹149)"}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              );
+            })()}
           </div>
 
           {/* Recent attempts log */}

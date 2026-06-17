@@ -187,8 +187,8 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       // We fall back so that local runtimes are functional
       setIsSimulatedFlow(true);
       setOtpSent(true);
-      setOtpCode("123456"); // Prepopulate to skip typing instruction text
-      setSuccessMsg("System code dispatched to " + fullPhone + ". (Simulated fallback active as Phone Auth provider is pending configuration in Firebase Console)");
+      setOtpCode(""); // Remove prefilling text
+      setSuccessMsg("A simulated 6-digit verification code has been dispatched to " + fullPhone + ". You can enter any 6-digit code to continue.");
     } finally {
       setIsLoading(false);
     }
@@ -200,6 +200,10 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       setErrorMsg("Please enter the 6-digit confirmation code.");
       return;
     }
+    if (otpCode.length !== 6) {
+      setErrorMsg("Verification code must be exactly 6 digits.");
+      return;
+    }
     setIsLoading(true);
     setErrorMsg("");
     
@@ -208,9 +212,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
     try {
       if (isSimulatedFlow) {
-        if (otpCode !== "123456") {
-          throw new Error("Incorrect verification code under simulated fallback check-in.");
-        }
+        // Accept any 6 digit simulated verification code
         await signInWithPhoneSimulated(fullPhone, name);
       } else {
         await confirmPhoneOtp(confirmationResult, otpCode, name);

@@ -41,6 +41,8 @@ interface AuthContextType {
   updateUserProfileName: (name: string) => Promise<void>;
   updateUserAvatar: (avatarUrl: string) => Promise<void>;
   upgradeToPremium: () => Promise<void>;
+  purchasePackageSeries: (packageId: string) => Promise<void>;
+  purchaseMockTest: (testId: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
 
@@ -117,7 +119,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       averageAccuracy: 0,
       streakDays: 1,
       predictedRank: 12500,
-      tier: "free"
+      tier: "free",
+      purchasedSeries: [],
+      purchasedTestIds: []
     };
     
     localStorage.setItem("eliteprep_sandbox_session", JSON.stringify(mockSession));
@@ -147,6 +151,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setPrivateInfo({
       email: simulatedUser.email,
       tier: "free",
+      purchasedSeries: [],
+      purchasedTestIds: [],
       createdAt: new Date().toISOString()
     });
     setIsAdmin(true); // Grant sandbox administrator privileges
@@ -468,6 +474,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const purchasePackageSeries = async (packageId: string) => {
+    if (!user) return;
+    const colName = isAdmin ? "admins" : "users";
+    const privatePath = `${colName}/${user.uid}/private/info`;
+    try {
+      const currentPurchased = privateInfo?.purchasedSeries || [];
+      if (currentPurchased.includes(packageId)) return; // already unlocked
+
+      const updated = [...currentPurchased, packageId];
+
+      if (user.uid.startsWith("virtual_sandbox_")) {
+        const stored = localStorage.getItem("eliteprep_sandbox_session");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          parsed.purchasedSeries = updated;
+          localStorage.setItem("eliteprep_sandbox_session", JSON.stringify(parsed));
+        }
+      } else {
+        await setDoc(doc(db, colName, user.uid, "private", "info"), {
+          purchasedSeries: updated
+        }, { merge: true });
+      }
+
+      setPrivateInfo(prev => prev ? { ...prev, purchasedSeries: updated } : null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, privatePath);
+    }
+  };
+
+  const purchaseMockTest = async (testId: string) => {
+    if (!user) return;
+    const colName = isAdmin ? "admins" : "users";
+    const privatePath = `${colName}/${user.uid}/private/info`;
+    try {
+      const currentPurchased = privateInfo?.purchasedTestIds || [];
+      if (currentPurchased.includes(testId)) return; // already unlocked
+
+      const updated = [...currentPurchased, testId];
+
+      if (user.uid.startsWith("virtual_sandbox_")) {
+        const stored = localStorage.getItem("eliteprep_sandbox_session");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          parsed.purchasedTestIds = updated;
+          localStorage.setItem("eliteprep_sandbox_session", JSON.stringify(parsed));
+        }
+      } else {
+        await setDoc(doc(db, colName, user.uid, "private", "info"), {
+          purchasedTestIds: updated
+        }, { merge: true });
+      }
+
+      setPrivateInfo(prev => prev ? { ...prev, purchasedTestIds: updated } : null);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, privatePath);
+    }
+  };
+
   // Sync state on authentication change
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -609,6 +673,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setPrivateInfo({
               email: simulatedUser.email,
               tier: sandboxData.tier || "free",
+              purchasedSeries: sandboxData.purchasedSeries || [],
+              purchasedTestIds: sandboxData.purchasedTestIds || [],
               createdAt: new Date().toISOString()
             });
             setIsAdmin(true);
@@ -651,6 +717,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       updateUserProfileName,
       updateUserAvatar,
       upgradeToPremium,
+      purchasePackageSeries,
+      purchaseMockTest,
       refreshProfile
     }}>
       {children}

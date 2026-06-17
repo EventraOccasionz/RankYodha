@@ -25,6 +25,7 @@
       "properties": {
         "email": { "type": "string", "format": "email", "description": "The secure user email" },
         "tier": { "type": "string", "enum": ["free", "premium"], "description": "Subscription tier" },
+        "purchasedSeries": { "type": "array", "items": { "type": "string" }, "description": "List of unlocked specific exam package IDs" },
         "planExpiresAt": { "type": "string", "format": "date-time", "description": "Timestamp of subscription expiration" },
         "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp of the user account" }
       },
@@ -82,6 +83,21 @@
         "createdAt": { "type": "string", "format": "date-time", "description": "Admin designation date" }
       },
       "required": ["userId", "email"]
+    },
+    "PrepVideo": {
+      "title": "PrepVideo",
+      "description": "Curated lectures and study preparation videos published by system administrators",
+      "type": "object",
+      "properties": {
+        "videoId": { "type": "string", "description": "Unique video document identifier" },
+        "title": { "type": "string", "description": "Short and concise title for the lecture or video" },
+        "description": { "type": "string", "description": "Short summary or outline of topics covered in the lecture" },
+        "category": { "type": "string", "description": "The specific Indian exam category (UPSC, SSC, Banking, Rail, or General)" },
+        "videoUrl": { "type": "string", "description": "The video hyperlink (YouTube, Vimeo, or MP4 URL)" },
+        "durationText": { "type": "string", "description": "Watching duration annotation (e.g. 15 mins, 01:24:10)" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" }
+      },
+      "required": ["videoId", "title", "description", "category", "videoUrl", "durationText", "createdAt"]
     }
   },
   "firestore": {
@@ -104,6 +120,10 @@
     "/users/{userId}/attempts/{attemptId}": {
       "schema": "UserAttempt",
       "description": "Detailed log history entries for self study progress, stats and charts"
+    },
+    "/prepVideos/{videoId}": {
+      "schema": "PrepVideo",
+      "description": "Admin managed exam preparation high-quality lectures and videos collection"
     }
   }
 }

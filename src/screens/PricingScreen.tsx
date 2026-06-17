@@ -1,173 +1,173 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
+import { DEFAULT_MOCK_TESTS } from "../data/mockTestData";
+import { MockTest } from "../types";
 import { 
   Crown, 
   Check, 
   ArrowLeft, 
-  Activity, 
-  ShieldCheck, 
   CreditCard, 
-  PhoneCall, 
-  TrendingUp, 
   ArrowRight,
   Sparkles,
   Zap,
   Lock,
-  Gift
+  Gift,
+  AlertTriangle,
+  Award,
+  BookOpen
 } from "lucide-react";
 
 interface PricingScreenProps {
   setScreen: (screen: string) => void;
+  allMockTests?: MockTest[];
+  initialSelectedTestId?: string;
+  setSelectedTestId?: (testId: string) => void;
 }
 
-export default function PricingScreen({ setScreen }: PricingScreenProps) {
-  const { user, privateInfo, upgradeToPremium, signInWithGoogle } = useAuth();
+export default function PricingScreen({ setScreen, allMockTests, initialSelectedTestId, setSelectedTestId }: PricingScreenProps) {
+  const { user, privateInfo, purchaseMockTest, signInWithGoogle } = useAuth();
   
   // Coupon state
   const [coupon, setCoupon] = useState("");
   const [discountApplied, setDiscountApplied] = useState(false);
   const [discountError, setDiscountError] = useState("");
 
-  // Payment popup checkout states
-  const [selectedPlan, setSelectedPlan] = useState<{ id: string; name: string; originalPrice: number; price: number } | null>(null);
+  const originalTestPrice = 299;
+  const currentTestPrice = 149;
+
+  // Selected payment item state
+  const [selectedItem, setSelectedItem] = useState<{
+    type: "mock";
+    id: string;
+    name: string;
+    originalPrice: number;
+    price: number;
+  } | null>(null);
+
   const [paymentMethod, setPaymentMethod] = useState<"card" | "upi" | "netbank">("upi");
   const [checkoutStatus, setCheckoutStatus] = useState<"idle" | "processing" | "success">("idle");
 
-  const plans = [
-    {
-      id: "monthly",
-      name: "Aspirant Tier",
-      originalPrice: 799,
-      price: 499,
-      duration: "Month",
-      desc: "Perfect for brief revisions and evaluation testing sprints.",
-      features: [
-        "Access to basic mock test pools",
-        "AIR Predictor algorithms",
-        "Recent attempt logs history",
-        "Standard subject-level accuracy tags"
-      ]
-    },
-    {
-      id: "yearly",
-      name: "Elite Topper Pro",
-      originalPrice: 5999,
-      price: 2999,
-      duration: "Year",
-      desc: "Optimized yearly roadmap aligning full commission mock reviews.",
-      features: [
-        "Unrestricted mock test papers databases",
-        "Millisecond speed-timers tracking",
-        "All India topper comparative charts",
-        "Complete deep-dive technical explanations",
-        "Custom weak concept AI study habits tracker",
-        "Priority premium customer support lines"
-      ],
-      popular: true
-    },
-    {
-      id: "quarterly",
-      name: "Achiever Bundle",
-      originalPrice: 2399,
-      price: 1299,
-      duration: "3 Months",
-      desc: "Robust choice for serious revisions and exam-period practice sheets.",
-      features: [
-        "Access to extended practice pools",
-        "AIR Predictor algorithms",
-        "Timing and Speed per section metrics",
-        "Standard subject-level accuracy tags"
-      ]
-    }
-  ];
+  const testsList = allMockTests || DEFAULT_MOCK_TESTS;
+  const purchasedTestIds = privateInfo?.purchasedTestIds || [];
+  const isPremiumUser = privateInfo?.tier === "premium";
 
   const handleApplyCoupon = () => {
     if (coupon.trim().toUpperCase() === "TOPPER50") {
       setDiscountApplied(true);
       setDiscountError("");
+      // Dynamically adjust current checkout item if open
+      if (selectedItem) {
+        setSelectedItem(prev => prev ? {
+          ...prev,
+          price: Math.round(currentTestPrice * 0.5)
+        } : null);
+      }
     } else {
       setDiscountError("Invalid coupon code! Try TOPPER50 for 50% discount.");
     }
   };
 
-  const handleCheckoutClick = (plan: typeof plans[0]) => {
+  const handleMockTestCheckout = (test: MockTest) => {
     if (!user) {
-      signInWithGoogle();
+      if (setSelectedTestId) setSelectedTestId(test.testId);
+      setScreen("landing");
       return;
     }
-    // Set active checkout plan
-    setSelectedPlan({
-      id: plan.id,
-      name: plan.name,
-      originalPrice: plan.originalPrice,
-      price: discountApplied ? Math.round(plan.price * 0.5) : plan.price
+    setSelectedItem({
+      type: "mock",
+      id: test.testId,
+      name: test.title,
+      originalPrice: originalTestPrice,
+      price: discountApplied ? Math.round(currentTestPrice * 0.5) : currentTestPrice
     });
     setCheckoutStatus("idle");
   };
 
   const processMockPayment = async () => {
+    if (!selectedItem) return;
     setCheckoutStatus("processing");
     
     // Simulate Razorpay secure payment gateways
     setTimeout(async () => {
       try {
-        await upgradeToPremium();
+        await purchaseMockTest(selectedItem.id);
         setCheckoutStatus("success");
       } catch (err) {
-        console.error("Payment error: ", err);
+        console.error("Razorpay simulated payment verification failure: ", err);
         setCheckoutStatus("idle");
       }
-    }, 2000);
+    }, 1800);
   };
 
-  const isPremiumUser = privateInfo?.tier === "premium";
+  // Auto-open checkout modal if initialSelectedTestId is given and not yet purchased
+  useEffect(() => {
+    if (initialSelectedTestId) {
+      const alreadyPurchased = isPremiumUser || purchasedTestIds.includes(initialSelectedTestId);
+      if (!alreadyPurchased) {
+        const matchingTest = testsList.find(t => t.testId === initialSelectedTestId);
+        if (matchingTest) {
+          setSelectedItem({
+            type: "mock",
+            id: matchingTest.testId,
+            name: matchingTest.title,
+            originalPrice: originalTestPrice,
+            price: discountApplied ? Math.round(currentTestPrice * 0.5) : currentTestPrice
+          });
+          setCheckoutStatus("idle");
+        }
+      }
+    }
+  }, [initialSelectedTestId, testsList, purchasedTestIds, isPremiumUser]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 font-sans text-slate-100 min-h-screen" id="pricing-screen">
       
       {/* Return Navigation */}
       <button 
-        onClick={() => setScreen("landing")}
-        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-white transition-colors uppercase font-mono tracking-widest mb-6"
+        onClick={() => {
+          if (setSelectedTestId) setSelectedTestId("");
+          setScreen("landing");
+        }}
+        className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-white transition-colors uppercase font-mono tracking-widest mb-8"
       >
-        <ArrowLeft className="w-4 h-4" /> Return to Welcome Page
+        <ArrowLeft className="w-4 h-4" /> Return to Home
       </button>
 
       {/* Header Banner */}
       <div className="text-center max-w-3xl mx-auto mb-16">
-        <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full text-xs text-amber-400 font-mono mb-4 uppercase">
-          <Crown className="w-3.5 h-3.5 fill-amber-400" /> Unlock Unlimited System Access
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-500/10 border border-red-500/20 rounded-none text-[10px] text-red-400 font-mono mb-4 uppercase tracking-widest font-bold">
+          <Crown className="w-3.5 h-3.5 fill-red-400/20" /> Pay-Per-Test Hub
         </div>
-        <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white mb-4">
-          Empower Your Prep Journey
+        <h1 className="text-3xl sm:text-5xl font-black tracking-tight text-white uppercase mb-4">
+          Individual Mock Exam Store
         </h1>
-        <p className="text-slate-400 text-sm sm:text-base leading-relaxed">
-          Unlock premium mock banks, millisecond speed profiling, and comprehensive topper comparisons. All plans are backed by secure, flexible upgrade triggers.
+        <p className="text-slate-400 text-xs sm:text-sm leading-relaxed max-w-2xl mx-auto">
+          We have removed subscription plans and package deals. Now, buy only the individual CBT mock tests you wish to practice, with a lifetime validity! Price per test is ₹149.
         </p>
       </div>
 
       {isPremiumUser && (
-        <div className="max-w-2xl mx-auto bg-gradient-to-tr from-emerald-500/10 to-teal-500/5 border border-emerald-500/30 rounded-3xl p-6 text-center mb-12">
-          <Crown className="w-10 h-10 text-amber-400 fill-amber-400 mx-auto mb-3 animate-pulse" />
-          <h3 className="text-lg font-bold text-white mb-2">You have unlocked premium status!</h3>
-          <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4 leading-relaxed">
-            All unlimited questions archives, speed timers reports, and AIR estimations maps are fully deployed to your student profile dashboard.
+        <div className="max-w-xl mx-auto bg-[#111] border border-red-500/30 rounded-none p-8 text-center mb-12">
+          <Crown className="w-10 h-10 text-red-500 fill-red-500/20 mx-auto mb-4 animate-pulse" />
+          <h3 className="text-md font-sans font-bold uppercase tracking-tight text-white mb-2">Unlimited Access Active!</h3>
+          <p className="text-xs text-slate-400 max-w-sm mx-auto mb-6 leading-relaxed">
+            All mock series papers, detailed stats, timing reports and performance blueprints are fully unlocked for your student profile.
           </p>
           <button
             onClick={() => setScreen("dashboard")}
-            className="px-5 py-2 px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-extrabold text-xs rounded-xl"
+            className="w-full sm:w-auto px-8 py-3 bg-white hover:bg-[#FF3B3F] text-black hover:text-white font-mono font-black text-xs uppercase tracking-widest rounded-none transition-all duration-200"
           >
-            Launch Premium Dashboard
+            Launch Prep Dashboard
           </button>
         </div>
       )}
 
       {/* Coupon Application Box */}
       {!isPremiumUser && (
-        <div className="max-w-md mx-auto bg-slate-900 border border-slate-800 rounded-2xl p-5 mb-14">
-          <div className="flex items-center gap-2 mb-3.5">
-            <Gift className="w-4 h-4 text-emerald-400" />
-            <h4 className="text-xs font-bold font-mono uppercase tracking-wide text-slate-300">Have a Promotional Coupon?</h4>
+        <div className="max-w-md mx-auto bg-[#111] border border-[#222] rounded-none p-6 mb-16">
+          <div className="flex items-center gap-2 mb-4">
+            <Gift className="w-4 h-4 text-red-500" />
+            <h4 className="text-[10px] font-bold font-mono uppercase tracking-widest text-slate-300">Have a Promotional Coupon?</h4>
           </div>
 
           <div className="flex gap-2.5">
@@ -177,185 +177,237 @@ export default function PricingScreen({ setScreen }: PricingScreenProps) {
               value={coupon}
               onChange={(e) => setCoupon(e.target.value)}
               disabled={discountApplied}
-              className="flex-1 bg-slate-950 border border-slate-850 hover:border-slate-800 focus:border-emerald-500 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white placeholder-slate-650 focus:outline-none uppercase"
+              className="flex-1 bg-black border border-[#222] focus:border-red-500 rounded-none px-4 py-3 text-xs font-mono text-white placeholder-slate-600 focus:outline-none uppercase"
             />
             <button
               onClick={handleApplyCoupon}
               disabled={discountApplied}
-              className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-800 text-slate-950 disabled:text-slate-500 font-bold text-xs rounded-xl transition-all"
+              className="px-6 py-3 bg-white hover:bg-[#FF3B3F] disabled:bg-[#222] text-black disabled:text-slate-500 font-mono font-black text-xs uppercase tracking-widest rounded-none transition-all cursor-pointer"
             >
               Apply
             </button>
           </div>
 
           {discountApplied && (
-            <p className="text-xs font-mono text-emerald-400 mt-2">Coupon applied successfully! 50% discount adjusted on all listed checkouts.</p>
+            <p className="text-xs font-mono text-emerald-400 mt-3.5">Coupon applied! 50% discount reflected on checkout prices.</p>
           )}
           {discountError && (
-            <p className="text-xs font-mono text-rose-400 mt-2">{discountError}</p>
+            <p className="text-xs font-mono text-red-400 mt-3.5">{discountError}</p>
           )}
         </div>
       )}
 
-      {/* Plans Pricing Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch mb-16">
-        {plans.map((p) => {
-          const finalPrice = discountApplied ? Math.round(p.price * 0.5) : p.price;
-          
-          return (
-            <div 
-              key={p.id}
-              className={`flex flex-col justify-between p-8 rounded-3xl relative transition-all ${
-                p.popular 
-                  ? "bg-slate-900 border-2 border-emerald-500 shadow-xl shadow-emerald-500/5 md:scale-[1.03]" 
-                  : "bg-slate-900/60 border border-slate-800"
-              }`}
-            >
-              {p.popular && (
-                <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-500 text-slate-950 font-bold font-mono text-[9px] uppercase tracking-widest px-3 py-1 rounded-full shadow">
-                  MOST POPULAR PLAN
-                </span>
-              )}
+      {/* Individual CBT Papers Selection */}
+      <div className="mb-20">
+        <h2 className="text-xl font-bold uppercase tracking-widest text-[#666] font-mono mb-8 border-b border-[#2A2A2A] pb-4">
+          All Available Mock Exam Papers
+        </h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {testsList.map((test) => {
+            const hasPurchased = isPremiumUser || purchasedTestIds.includes(test.testId);
+            const finalPrice = discountApplied ? Math.round(currentTestPrice * 0.5) : currentTestPrice;
 
-              <div>
-                <h3 className="text-lg font-bold text-white mb-2">{p.name}</h3>
-                <p className="text-xs text-slate-400 mb-6 min-h-[32px]">{p.desc}</p>
+            return (
+              <div 
+                key={test.testId} 
+                className={`bg-[#111111] border ${
+                  test.testId === initialSelectedTestId ? "border-red-500" : "border-[#222222]"
+                } hover:border-[#FF3B3F] rounded-none p-6 flex flex-col justify-between transition-colors duration-250 relative overflow-hidden group`}
+              >
+                {hasPurchased && (
+                  <div className="absolute top-3 right-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono font-bold text-[9px] uppercase tracking-wider px-2 py-0.5">
+                    UNLOCKED / PLAYABLE
+                  </div>
+                )}
                 
-                {/* Price Display */}
-                <div className="flex items-baseline gap-1 mb-8">
-                  {discountApplied && (
-                    <span className="text-sm line-through text-slate-500 mr-1.5">₹{p.price}</span>
-                  )}
-                  <span className="text-4xl font-extrabold text-white">₹{finalPrice}</span>
-                  <span className="text-xs font-mono text-slate-500">/ {p.duration}</span>
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="bg-black border border-[#222] text-red-500 px-3 py-1 text-[9px] font-mono uppercase tracking-widest inline-block">
+                      {test.category}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500 uppercase">
+                      {test.questionsCount} Questions
+                    </span>
+                  </div>
+                  
+                  <h3 className="text-base font-black text-white uppercase tracking-tight mb-2 group-hover:text-red-500 transition-colors">
+                    {test.title}
+                  </h3>
+                  
+                  <p className="text-xs text-[#999] leading-relaxed mb-6 h-12 overflow-hidden line-clamp-2">
+                    Comprehensive full length {test.category} syllabus series designed for real-time exam-simulation setup.
+                  </p>
+                  
+                  {/* Price */}
+                  <div className="flex items-baseline gap-1.5 mb-6 border-y border-[#222] py-4">
+                    {discountApplied && (
+                      <span className="text-xs line-through text-[#666]">₹{currentTestPrice}</span>
+                    )}
+                    <span className="text-2xl font-mono font-black text-white">
+                      {hasPurchased ? "FREE / OWNED" : `₹${finalPrice}`}
+                    </span>
+                    {!hasPurchased && (
+                      <span className="text-[10px] font-mono text-slate-500 uppercase">/ Life Validity</span>
+                    )}
+                  </div>
+
+                  {/* Bullet features */}
+                  <ul className="space-y-2.5 mb-8">
+                    <li className="flex items-start gap-2 text-xs">
+                      <Check className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-slate-300">Millisecond accuracy stats reports</span>
+                    </li>
+                    <li className="flex items-start gap-2 text-xs">
+                      <Check className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-slate-300">Comprehensive score model solutions keys</span>
+                    </li>
+                    <li className="flex items-start gap-2 text-xs">
+                      <Check className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-slate-300">All India predicted ranks comparator</span>
+                    </li>
+                  </ul>
                 </div>
 
-                {/* Features list */}
-                <div className="space-y-4 mb-8">
-                  {p.features.map((f, fIdx) => (
-                    <div key={fIdx} className="flex items-start gap-2.5 text-xs">
-                      <Check className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
-                      <span className="text-slate-300 leading-tight">{f}</span>
-                    </div>
-                  ))}
+                <div className="flex flex-col gap-2.5">
+                  <button
+                    onClick={() => {
+                      if (hasPurchased) {
+                        if (setSelectedTestId) setSelectedTestId(test.testId);
+                        setScreen("mock-test");
+                      } else {
+                        handleMockTestCheckout(test);
+                      }
+                    }}
+                    className={`w-full py-3 font-mono font-black text-xs uppercase tracking-widest rounded-none transition-all cursor-pointer ${
+                      hasPurchased
+                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500 hover:text-black"
+                        : "bg-white text-black hover:bg-red-500 hover:text-white"
+                    }`}
+                  >
+                    {hasPurchased ? "Solve Practice Paper" : "Unlock Mock Test"}
+                  </button>
                 </div>
               </div>
-
-              <button
-                onClick={() => handleCheckoutClick(p)}
-                disabled={isPremiumUser}
-                className={`w-full py-3.5 font-bold text-xs rounded-xl flex items-center justify-center gap-1 hover:scale-[1.01] active:scale-98 transition-all ${
-                  p.popular 
-                    ? "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-910 font-extrabold shadow-md shadow-emerald-500/10" 
-                    : "bg-slate-800 hover:bg-slate-700 text-white border border-slate-700"
-                } disabled:opacity-30`}
-              >
-                <span>Upgrade Account</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       {/* Razorpay Mock Checkout Modal */}
-      {selectedPlan && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 font-sans text-slate-100">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-sm w-full shadow-2xl relative overflow-hidden">
+      {selectedItem && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-center justify-center z-50 p-4 font-sans text-slate-100 animate-fadeIn">
+          <div className="bg-[#111111] border-2 border-red-500 rounded-none max-w-sm w-full shadow-2xl relative overflow-hidden">
             
             {/* Modal Header */}
-            <div className="p-5 bg-gradient-to-r from-blue-900 to-indigo-900 border-b border-indigo-800/20 relative">
-              <span className="text-[10px] font-mono uppercase bg-blue-500/20 text-blue-300 px-2.2 py-0.5 rounded border border-blue-500/25">SECURE CHEKOUT PORTAL</span>
-              <h3 className="text-lg font-extrabold text-white mt-1.5 leading-none">Razorpay Mockup</h3>
-              <p className="text-[9px] text-indigo-300 font-mono mt-1">PROCESING FOR ELITEPREP INC.</p>
+            <div className="p-6 bg-black border-b border-[#222] relative">
+              <span className="text-[9px] font-mono uppercase bg-red-500/10 text-red-400 px-2 py-0.5 rounded-none border border-red-500/20 tracking-widest font-bold">SECURE CBT CHECKOUT</span>
+              <h3 className="text-base font-black text-white mt-3 leading-none uppercase tracking-tight">Razorpay Online Gateway</h3>
+              <p className="text-[9px] text-[#666] font-mono mt-1 uppercase tracking-widest">Processing order for ElitePrep INC.</p>
 
               <button 
-                onClick={() => setSelectedPlan(null)}
+                onClick={() => {
+                  setSelectedItem(null);
+                  if (setSelectedTestId) setSelectedTestId("");
+                }}
                 disabled={checkoutStatus === "processing"}
-                className="absolute top-4 right-4 text-indigo-200 hover:text-white"
+                className="absolute top-4 right-4 text-[#666] hover:text-white font-mono text-xs uppercase hover:underline"
               >
-                Close
+                Cancel
               </button>
             </div>
 
             {checkoutStatus === "processing" ? (
-              <div className="p-8 text-center">
-                <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
-                <h4 className="text-sm font-extrabold text-white mb-2">Processing Secure Gateway...</h4>
-                <p className="text-xs text-slate-400 max-w-xs mx-auto font-mono">Verifying authorization protocols from your financial partner.</p>
+              <div className="p-8 text-center bg-black/50">
+                <div className="w-8 h-8 border-2 border-red-500 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
+                <h4 className="text-xs font-bold uppercase tracking-widest text-white mb-2">Authenticating Gateway...</h4>
+                <p className="text-[10px] text-slate-400 max-w-xs mx-auto font-mono">WAITING FOR SECURE SYSTEM CLEARANCE BLUEPRINT...</p>
               </div>
             ) : checkoutStatus === "success" ? (
-              <div className="p-8 text-center">
-                <Check className="w-12 h-12 text-emerald-400 mx-auto mb-4 bg-emerald-500/10 p-2.5 rounded-full border border-emerald-55" />
-                <h4 className="text-lg font-extrabold text-white mb-2">Upgrade Confirmed!</h4>
-                <p className="text-xs text-slate-400 max-w-xs mx-auto mb-6">
-                  Payment of ₹{selectedPlan.price} received. All advanced India government mock paper pools have been deployed.
+              <div className="p-8 text-center bg-black/50">
+                <Check className="w-12 h-12 text-emerald-400 mx-auto mb-4 bg-emerald-500/10 p-2.5 rounded-none border border-emerald-500/30" />
+                <h4 className="text-sm font-black text-white uppercase tracking-tight mb-2">Transaction Standard OK!</h4>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto mb-6">
+                  Payment of ₹{selectedItem.price} verified by Razorpay API. This CBT exam is fully unlocked in your account!
                 </p>
-                <button
-                  onClick={() => { setSelectedPlan(null); setScreen("dashboard"); }}
-                  className="w-full py-2.5 bg-emerald-500 text-slate-950 font-bold text-xs rounded-xl"
-                >
-                  Return to Dashboard
-                </button>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => { 
+                      setSelectedItem(null); 
+                      if (setSelectedTestId) setSelectedTestId(selectedItem.id); 
+                      setScreen("mock-test"); 
+                    }}
+                    className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-black font-mono font-black text-xs uppercase tracking-widest rounded-none cursor-pointer"
+                  >
+                    Start practicing now
+                  </button>
+                  <button
+                    onClick={() => { 
+                      setSelectedItem(null); 
+                      if (setSelectedTestId) setSelectedTestId(""); 
+                      setScreen("dashboard"); 
+                    }}
+                    className="w-full py-3 bg-[#1F1F1F] hover:bg-[#2F2F2F] text-slate-200 font-mono font-black text-xs uppercase tracking-widest rounded-none cursor-pointer"
+                  >
+                    Go to Dashboard
+                  </button>
+                </div>
               </div>
             ) : (
-              <div className="p-6">
+              <div className="p-6 bg-black/30">
                 
-                {/* Plan stats summary */}
-                <div className="bg-slate-950/60 border border-slate-850 rounded-2xl p-4 mb-6">
-                  <p className="text-[10px] text-slate-500 font-mono uppercase leading-none mb-1">upgrade selection</p>
-                  <p className="text-sm font-bold text-white">{selectedPlan.name}</p>
-                  <div className="flex justify-between items-baseline mt-2 pt-2 border-t border-slate-850">
-                    <span className="text-xs text-slate-400">Total charge:</span>
-                    <span className="text-lg font-extrabold text-emerald-400 font-mono">₹{selectedPlan.price}</span>
+                {/* stats summary */}
+                <div className="bg-black border border-[#222] rounded-none p-4 mb-6">
+                  <p className="text-[9px] text-[#666] font-mono uppercase leading-none mb-1 tracking-wider text-left font-bold">EXAM ITEM SELECT</p>
+                  <p className="text-xs font-black text-white uppercase tracking-tight text-left leading-normal">{selectedItem.name}</p>
+                  <div className="flex justify-between items-baseline mt-4 pt-3 border-t border-[#222]">
+                    <span className="text-xs text-slate-400 font-mono uppercase tracking-wider">TOTAL PRICING</span>
+                    <span className="text-xl font-mono font-black text-white">₹{selectedItem.price}</span>
                   </div>
                 </div>
 
                 {/* Simulated payment options */}
-                <h4 className="text-xs font-bold uppercase font-mono text-slate-400 mb-2.5">Select Payment Protocol</h4>
-                <div className="space-y-2 mb-6 text-xs">
+                <h4 className="text-[9px] font-bold uppercase font-mono text-slate-400 mb-2.5 tracking-widest text-left">SELECT PAY CHANNEL</h4>
+                <div className="space-y-2 mb-6 text-xs text-left">
                   <button
                     onClick={() => setPaymentMethod("upi")}
-                    className={`w-full p-3 rounded-xl border flex items-center justify-between text-left ${
-                      paymentMethod === "upi" ? "bg-blue-500/10 border-blue-500/60" : "bg-slate-950/30 border-slate-850"
+                    className={`w-full p-3.5 rounded-none border flex items-center justify-between text-left transition-colors ${
+                      paymentMethod === "upi" ? "bg-red-500/5 border-red-500 text-white font-bold" : "bg-black hover:bg-[#111] border-[#222] text-slate-400"
                     }`}
                   >
-                    <span>Instant UPI (GPay / PhonePe)</span>
-                    <span className="text-[10px] font-mono text-blue-400">Autopay</span>
+                    <span className="font-mono text-[10px] uppercase tracking-wider">Unified UPI (GPay/PhonePe)</span>
                   </button>
                   <button
                     onClick={() => setPaymentMethod("card")}
-                    className={`w-full p-3 rounded-xl border flex items-center justify-between text-left ${
-                      paymentMethod === "card" ? "bg-blue-500/10 border-blue-500/60" : "bg-slate-950/30 border-slate-850"
+                    className={`w-full p-3.5 rounded-none border flex items-center justify-between text-left transition-colors ${
+                      paymentMethod === "card" ? "bg-red-500/5 border-red-500 text-white font-bold" : "bg-black hover:bg-[#111] border-[#222] text-slate-400"
                     }`}
                   >
-                    <span>Credit / Debit Cards</span>
-                    <span className="text-[10px] font-mono text-slate-500">256-bit</span>
+                    <span className="font-mono text-[10px] uppercase tracking-wider">Credit or Debit Cards</span>
                   </button>
                   <button
                     onClick={() => setPaymentMethod("netbank")}
-                    className={`w-full p-3 rounded-xl border flex items-center justify-between text-left ${
-                      paymentMethod === "netbank" ? "bg-blue-500/10 border-blue-500/60" : "bg-slate-950/30 border-slate-850"
+                    className={`w-full p-3.5 rounded-none border flex items-center justify-between text-left transition-colors ${
+                      paymentMethod === "netbank" ? "bg-red-500/5 border-red-500 text-white font-bold" : "bg-black hover:bg-[#111] border-[#222] text-slate-400"
                     }`}
                   >
-                    <span>Netbanking (SBI, HDFC, ICICI)</span>
-                    <span className="text-[10px] font-mono text-slate-500">Direct</span>
+                    <span className="font-mono text-[10px] uppercase tracking-wider">Direct Net Banking (SBI, HDFC)</span>
                   </button>
                 </div>
 
                 {/* Checkout Trigger */}
                 <button
                   onClick={processMockPayment}
-                  className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-sans font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow"
+                  className="w-full py-4 bg-red-500 hover:bg-white text-white hover:text-black font-mono font-black text-xs uppercase tracking-widest rounded-none flex items-center justify-center gap-2 cursor-pointer"
                 >
-                  <Lock className="w-3.5 h-3.5 text-blue-200" />
-                  <span>Execute Payment ₹{selectedPlan.price}</span>
+                  <Lock className="w-4 h-4 text-red-200" />
+                  <span>Authenticate Pay ₹{selectedItem.price}</span>
                 </button>
               </div>
             )}
 
-            <div className="bg-slate-950 border-t border-slate-850 p-3 text-[9px] font-mono text-center text-slate-500 uppercase tracking-widest leading-none">
-              Razorpay Secured Gateway. 128-bit encryption standard.
+            <div className="bg-black border-t border-[#222] p-3 text-[9px] font-mono text-center text-slate-500 uppercase tracking-widest leading-none">
+              Secured AES 256 transaction tunnel.
             </div>
           </div>
         </div>

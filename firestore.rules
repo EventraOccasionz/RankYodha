@@ -18,7 +18,7 @@ service cloud.firestore {
     }
     
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() <= 128;
     }
     
     function incoming() {
@@ -31,11 +31,13 @@ service cloud.firestore {
     
     function isAdmin() {
       return isSignedIn() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email == "admin@eliteprep.com" ||
-        request.auth.token.email == "rahul@eliteprep.com" ||
-        request.auth.token.email == "ayusharora408@gmail.com" ||
-        request.auth.token.email == "ddg27874@gmail.com"
+        (request.auth.token != null && 'email' in request.auth.token && (
+          request.auth.token.email == "admin@eliteprep.com" ||
+          request.auth.token.email == "rahul@eliteprep.com" ||
+          request.auth.token.email == "ayusharora408@gmail.com" ||
+          request.auth.token.email == "ddg27874@gmail.com"
+        )) ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
@@ -65,19 +67,22 @@ service cloud.firestore {
     function isValidPrivateInfo(data) {
       return data.email is string && data.email.size() <= 256 &&
              data.tier is string && (data.tier == 'free' || data.tier == 'premium') &&
-             data.createdAt is string;
+             data.createdAt is string &&
+             (!data.keys().hasAll(['purchasedSeries']) || data.purchasedSeries is list) &&
+             (!data.keys().hasAll(['purchasedTestIds']) || data.purchasedTestIds is list);
     }
 
     // Blueprint Validation for MockTest Entity
     function isValidMockTest(data) {
-      return data.keys().hasAll(['testId', 'title', 'category', 'questionsCount', 'durationMinutes', 'difficulty', 'questions', 'createdAt']) &&
+      return data.keys().hasAll(['testId', 'title', 'category', 'questionsCount', 'durationMinutes', 'difficulty', 'questions']) &&
              data.testId is string && data.testId.size() <= 128 &&
-             data.title is string && data.title.size() <= 200 &&
-             data.category is string && data.category.size() <= 50 &&
-             data.questionsCount is int && data.questionsCount >= 0 &&
-             data.durationMinutes is int && data.durationMinutes >= 0 &&
-             data.difficulty is string && (data.difficulty == 'Easy' || data.difficulty == 'Medium' || data.difficulty == 'Hard') &&
-             data.questions is list && data.questions.size() <= 200;
+             data.title is string && data.title.size() <= 500 &&
+             data.category is string && data.category.size() <= 100 &&
+             data.questionsCount is int &&
+             data.durationMinutes is int &&
+             data.difficulty is string &&
+             data.questions is list &&
+             (!data.keys().hasAll(['createdAt']) || data.createdAt is string);
     }
 
     // Blueprint Validation for UserAttempt Entity
@@ -93,6 +98,18 @@ service cloud.firestore {
              (data.accuracyPercent is int || data.accuracyPercent is float) && data.accuracyPercent >= 0.0 && data.accuracyPercent <= 100.0 &&
              data.timeSpentSeconds is int && data.timeSpentSeconds >= 0 &&
              data.answers is list;
+    }
+
+    // Blueprint Validation for PrepVideo Entity
+    function isValidPrepVideo(data) {
+      return data.keys().hasAll(['videoId', 'title', 'videoUrl']) &&
+             data.videoId is string && data.videoId.size() <= 128 &&
+             data.title is string && data.title.size() <= 500 &&
+             data.videoUrl is string && data.videoUrl.size() <= 1000 &&
+             (!data.keys().hasAll(['category']) || (data.category is string && data.category.size() <= 200)) &&
+             (!data.keys().hasAll(['description']) || (data.description is string && data.description.size() <= 2000)) &&
+             (!data.keys().hasAll(['durationText']) || (data.durationText is string && data.durationText.size() <= 100)) &&
+             (!data.keys().hasAll(['createdAt']) || data.createdAt is string);
     }
 
     // --- FIRESTORE path rules matching definitions ---
@@ -113,7 +130,7 @@ service cloud.firestore {
                       incoming().email is string && incoming().email.size() <= 256 &&
                       incoming().tier is string && (incoming().tier == 'free' || incoming().tier == 'premium') &&
                       incoming().createdAt == existing().createdAt &&
-                      incoming().diff(existing()).affectedKeys().hasOnly(['email', 'tier', 'planExpiresAt']);
+                      incoming().diff(existing()).affectedKeys().hasOnly(['email', 'tier', 'planExpiresAt', 'purchasedSeries', 'purchasedTestIds']);
       allow delete: if isAdmin();
     }
 
@@ -134,16 +151,16 @@ service cloud.firestore {
                       incoming().email is string && incoming().email.size() <= 256 &&
                       incoming().tier is string && (incoming().tier == 'free' || incoming().tier == 'premium') &&
                       incoming().createdAt == existing().createdAt &&
-                      incoming().diff(existing()).affectedKeys().hasOnly(['email', 'tier', 'planExpiresAt']);
+                      incoming().diff(existing()).affectedKeys().hasOnly(['email', 'tier', 'planExpiresAt', 'purchasedSeries', 'purchasedTestIds']);
       allow delete: if isAdmin();
     }
 
     // 3. Mock Examination tests database rules
     match /mockTests/{testId} {
       allow read: if isSignedIn();
-      allow create: if isAdmin() && isValidId(testId) && isValidMockTest(incoming());
-      allow update: if isAdmin() && isValidId(testId) && isValidMockTest(incoming());
-      allow delete: if isAdmin();
+      allow create: if isSignedIn() && isValidId(testId) && isValidMockTest(incoming());
+      allow update: if isSignedIn() && isValidId(testId) && isValidMockTest(incoming());
+      allow delete: if isSignedIn();
     }
 
     // 4. Detailed history log attempts subcollections
@@ -156,6 +173,14 @@ service cloud.firestore {
                       incoming().takenAt == existing().takenAt &&
                       incoming().diff(existing()).affectedKeys().hasOnly(['scoreSecured', 'accuracyPercent', 'timeSpentSeconds', 'answers']);
       allow delete: if isAdmin();
+    }
+
+    // 5. Prep videos database rules
+    match /prepVideos/{videoId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidId(videoId) && isValidPrepVideo(incoming());
+      allow update: if isSignedIn() && isValidId(videoId) && isValidPrepVideo(incoming());
+      allow delete: if isSignedIn();
     }
   }
 }

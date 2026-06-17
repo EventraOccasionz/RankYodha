@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { UserAttempt, Question } from "../types";
+import { UserAttempt, Question, MockTest } from "../types";
 import { DEFAULT_MOCK_TESTS } from "../data/mockTestData";
 import { 
   Trophy, 
@@ -31,15 +31,17 @@ import {
 interface ResultAnalyticsScreenProps {
   attempt: UserAttempt;
   setScreen: (screen: string) => void;
+  allMockTests?: MockTest[];
 }
 
-export default function ResultAnalyticsScreen({ attempt, setScreen }: ResultAnalyticsScreenProps) {
+export default function ResultAnalyticsScreen({ attempt, setScreen, allMockTests }: ResultAnalyticsScreenProps) {
   const { testTitle, category, scoreSecured, maxScorePossible, accuracyPercent, percentileSecured, timeSpentSeconds, answers, testId } = attempt;
 
   // Retrieve original test questions
   const correspondingTest = useMemo(() => {
-    return DEFAULT_MOCK_TESTS.find(t => t.testId === testId) || DEFAULT_MOCK_TESTS[0];
-  }, [testId]);
+    const testsToUse = allMockTests || DEFAULT_MOCK_TESTS;
+    return testsToUse.find(t => t.testId === testId) || testsToUse[0];
+  }, [testId, allMockTests]);
 
   const questionsList = correspondingTest.questions;
 
@@ -216,7 +218,7 @@ export default function ResultAnalyticsScreen({ attempt, setScreen }: ResultAnal
             <CheckCircle className="w-4 h-4 text-[#FF3B3F]" /> Question Breakdown
           </h3>
           <div className="h-60 flex items-center justify-between">
-            <div className="w-1/2 h-full">
+            <div className="w-1/2 h-60 relative" style={{ width: "50%", height: "240px", minHeight: "240px" }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                    <Pie
@@ -275,7 +277,7 @@ export default function ResultAnalyticsScreen({ attempt, setScreen }: ResultAnal
           <h3 className="text-sm font-black text-white mb-6 uppercase tracking-tight flex items-center gap-2">
             <Clock className="w-4 h-4 text-[#FF3B3F]" /> Time Spent per Section
           </h3>
-          <div className="h-60">
+          <div className="w-full h-60 relative" style={{ width: "100%", height: "240px", minHeight: "240px" }}>
             {barData.length === 0 ? (
               <p className="text-xs text-[#666] pt-20 text-center font-mono uppercase tracking-widest">No Section metrics registered</p>
             ) : (

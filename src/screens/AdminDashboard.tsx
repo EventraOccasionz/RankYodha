@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { DEFAULT_MOCK_TESTS } from "../data/mockTestData";
-import { MockTest, Question } from "../types";
+import { MockTest, Question, PrepVideo } from "../types";
 import { 
   collection, 
   doc, 
@@ -23,7 +23,11 @@ import {
   X, 
   Check, 
   AlertCircle,
-  HelpCircle
+  HelpCircle,
+  ArrowRight,
+  Video,
+  Play,
+  FileVideo
 } from "lucide-react";
 import { 
   AreaChart, 
@@ -34,7 +38,7 @@ import {
   ResponsiveContainer 
 } from "recharts";
 
-export default function AdminDashboard() {
+export default function AdminDashboard({ allPrepVideos }: { allPrepVideos?: PrepVideo[] }) {
   const { user, profile, isAdmin } = useAuth();
   
   // Custom uploaded mock tests
@@ -61,6 +65,21 @@ export default function AdminDashboard() {
 
   const [formError, setFormError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  // Gemini AI Extraction states
+  const [rawPasteText, setRawPasteText] = useState("");
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionSuccess, setExtractionSuccess] = useState<string | null>(null);
+
+  // Form states for new video
+  const [videoTitle, setVideoTitle] = useState("");
+  const [videoCategory, setVideoCategory] = useState("UPSC");
+  const [videoDescription, setVideoDescription] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [videoDuration, setVideoDuration] = useState("15 mins");
+  const [videoSaving, setVideoSaving] = useState(false);
+  const [videoError, setVideoError] = useState("");
+  const [videoSuccess, setVideoSuccess] = useState("");
 
   // Load custom tests from Firestore /mockTests
   useEffect(() => {
@@ -213,6 +232,35 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleAIExtractQuestions = async () => {
+    if (!rawPasteText.trim()) {
+      setFormError("Please enter some text, book transcripts, syllabus details, or raw questions to analyze.");
+      return;
+    }
+    setFormError("");
+    setExtractionSuccess(null);
+    setIsExtracting(true);
+    try {
+      const response = await fetch("/api/gemini/parse-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rawText: rawPasteText, category: testCategory })
+      });
+      const data = await response.json();
+      if (data.success && data.questions && data.questions.length > 0) {
+        setFormQuestions(data.questions);
+        setExtractionSuccess(`Successfully parsed ${data.questions.length} questions using Gemini AI! Check them below.`);
+      } else {
+        setFormError(data.error || "Failed to extract valid questions from raw text.");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setFormError("Network or server connection error during AI parsing.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   const handleDeleteMockTest = async (targetTestId: string) => {
     try {
       await deleteDoc(doc(db, "mockTests", targetTestId));
@@ -220,6 +268,108 @@ export default function AdminDashboard() {
       console.error("Failed to delete mock asset: ", err);
       alert("Unauthorized! Only verified Firestore Administrators have truncate privileges.");
     }
+  };
+
+  const getEmbedUrl = (url: string) => {
+    if (!url) return "";
+    let regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    let match = url.match(regExp);
+    if (match && match[2].length === 11) {
+      return `https://www.youtube.com/embed/${match[2]}`;
+    }
+    return url;
+  };
+
+  const handleUploadPrepVideo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setVideoError("");
+    setVideoSuccess("");
+
+    if (!videoTitle.trim()) {
+      setVideoError("Video title is required.");
+      return;
+    }
+    if (!videoUrl.trim()) {
+      setVideoError("Video URL is required.");
+      return;
+    }
+
+    const finalUrl = getEmbedUrl(videoUrl.trim());
+    const videoId = "custom_video_" + Date.now();
+
+    setVideoSaving(true);
+    const path = "prepVideos";
+    try {
+      const payload: PrepVideo = {
+        videoId,
+        title: videoTitle.trim(),
+        description: videoDescription.trim() || "Free video lecture for exam prep.",
+        category: videoCategory,
+        videoUrl: finalUrl,
+        durationText: videoDuration.trim() || "15 mins",
+        createdAt: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, "prepVideos", videoId), payload);
+      setVideoSuccess("Prep video successfully published to Firestore and active on Home tab!");
+      setVideoTitle("");
+      setVideoDescription("");
+      setVideoUrl("");
+      setVideoDuration("15 mins");
+    } catch (err: any) {
+      console.warn("Firestore Error uploading prep video: ", err);
+      try {
+        handleFirestoreError(err, OperationType.CREATE, `${path}/${videoId}`);
+      } catch (innerErr: any) {
+        setVideoError(innerErr.message || "Failed to save video.");
+      }
+    } finally {
+      setVideoSaving(false);
+    }
+  };
+
+  const handleDeletePrepVideo = async (targetVideoId: string) => {
+    const path = "prepVideos";
+    if (window.confirm("Are you sure you want to delete this study video?")) {
+      try {
+        await deleteDoc(doc(db, "prepVideos", targetVideoId));
+      } catch (err: any) {
+        console.warn("Failed to delete prep video: ", err);
+        try {
+          handleFirestoreError(err, OperationType.DELETE, `${path}/${targetVideoId}`);
+        } catch (innerErr: any) {
+          alert("Error: " + innerErr.message);
+        }
+      }
+    }
+  };
+
+  const handleAutofillVideo = () => {
+    const choices = [
+      {
+        title: "UPSC Indian Polity Crash Course: Fundamental Rights",
+        desc: "High yield visual breakdown of Article 14 to Article 32 including supreme court case references.",
+        url: "https://www.youtube.com/watch?v=a9rZ9qQvC9o",
+        duration: "45 mins"
+      },
+      {
+        title: "IIT JEE Advanced Physics: Rotational Mechanics Essentials",
+        desc: "Learn critical rolling motion, angular momentum equations, and moment of inertia rules.",
+        url: "https://www.youtube.com/watch?v=5-97wX1rT6I",
+        duration: "58 mins"
+      },
+      {
+        title: "NCERT Cell Biology Complete Crash Course for NEET Aspirants",
+        desc: "Review crucial organelles, cell division cycles, and mitosis/meiosis diagrammatic questions.",
+        url: "https://www.youtube.com/watch?v=D3_qXb7GIdU",
+        duration: "35 mins"
+      }
+    ];
+    const randomChoice = choices[Math.floor(Math.random() * choices.length)];
+    setVideoTitle(randomChoice.title);
+    setVideoDescription(randomChoice.desc);
+    setVideoUrl(randomChoice.url);
+    setVideoDuration(randomChoice.duration);
   };
 
   // Simulated static income revenue metrics
@@ -342,7 +492,7 @@ export default function AdminDashboard() {
           <h3 className="text-md font-bold text-white mb-6 flex items-center gap-2">
             <LineChart className="w-4 h-4 text-emerald-400" /> Platform Revenue trends (Weekly)
           </h3>
-          <div className="h-64">
+          <div className="w-full h-64 relative" style={{ width: "100%", height: "256px" }}>
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={revenueData}>
                 <defs>
@@ -449,6 +599,177 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      {/* Exam Prep videos publisher & management */}
+      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 font-sans mt-8" id="admin-prep-videos-section">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 border-b border-slate-800 pb-4 gap-4">
+          <div>
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Video className="w-5 h-5 text-emerald-400" /> Exam Prep Videocasts Publisher (Real-time)
+            </h3>
+            <p className="text-xs text-slate-400">Add instructional videos and crash courses directly to the home page tab.</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleAutofillVideo}
+            className="px-4 py-2 border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-400 text-xs font-bold rounded-xl transition duration-150 uppercase tracking-wider"
+          >
+            ⚡ Autofill High-res Sample Video
+          </button>
+        </div>
+
+        {/* Video Upload Form */}
+        <form onSubmit={handleUploadPrepVideo} className="bg-slate-950/40 p-5 border border-slate-850/80 rounded-2xl mb-8 space-y-4 text-left">
+          {videoError && (
+            <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-xl flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 animate-bounce" />
+              <span>{videoError}</span>
+            </div>
+          )}
+          {videoSuccess && (
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-xl flex items-center gap-2">
+              <Check className="w-4 h-4 flex-shrink-0" />
+              <span>{videoSuccess}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] uppercase font-mono font-bold text-slate-400 mb-1.5">Lecture Title *</label>
+              <input
+                type="text"
+                placeholder="e.g. UPSC Prelims Indian Polity - High Yield Topics"
+                value={videoTitle}
+                onChange={(e) => setVideoTitle(e.target.value)}
+                className="w-full bg-[#030712] border border-slate-800 focus:border-red-500 rounded-xl p-3 text-xs text-white focus:outline-none placeholder-slate-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[10px] uppercase font-mono font-bold text-slate-400 mb-1.5">YouTube Video Link / URL *</label>
+              <input
+                type="text"
+                placeholder="e.g. https://www.youtube.com/watch?v=gU9H6XkGqGg"
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                className="w-full bg-[#030712] border border-slate-800 focus:border-red-500 rounded-xl p-3 text-xs text-white focus:outline-none placeholder-slate-600"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] uppercase font-mono font-bold text-slate-400 mb-1.5">Exam Category</label>
+              <select
+                value={videoCategory}
+                onChange={(e) => setVideoCategory(e.target.value)}
+                className="w-full bg-[#030712] border border-slate-800 focus:border-red-500 rounded-xl p-3 text-xs text-slate-300 focus:outline-none"
+              >
+                <option value="UPSC">UPSC (Civil Services)</option>
+                <option value="JEE">IIT JEE (Engineering)</option>
+                <option value="NEET">NEET (Medical)</option>
+                <option value="SSC">SSC (Staff Selection)</option>
+                <option value="Banking">Banking (IBPS/SBI)</option>
+                <option value="Railways">Railways (RRB)</option>
+                <option value="General">General Strategy</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] uppercase font-mono font-bold text-slate-400 mb-1.5">Duration (annotated)</label>
+              <input
+                type="text"
+                placeholder="e.g. 15 mins, 1 hour, 42:15"
+                value={videoDuration}
+                onChange={(e) => setVideoDuration(e.target.value)}
+                className="w-full bg-[#030712] border border-slate-800 focus:border-red-500 rounded-xl p-3 text-xs text-white focus:outline-none placeholder-slate-600"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase font-mono font-bold text-slate-400 mb-1.5">Brief description / syllabus outline</label>
+            <textarea
+              rows={2}
+              placeholder="Provide a summary of concepts discussed in the lecture..."
+              value={videoDescription}
+              onChange={(e) => setVideoDescription(e.target.value)}
+              className="w-full bg-[#030712] border border-slate-800 focus:border-red-500 rounded-xl p-3 text-xs text-white focus:outline-none placeholder-slate-600 resize-y"
+            />
+          </div>
+
+          <div className="flex justify-end pt-2">
+            <button
+              type="submit"
+              disabled={videoSaving}
+              className="px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-sans font-bold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow disabled:opacity-50 transition-all"
+            >
+              <FileVideo className="w-4 h-4 text-slate-950" />
+              <span>{videoSaving ? "Uploading to Firestore..." : "Publish Video Lecture"}</span>
+            </button>
+          </div>
+        </form>
+
+        {/* Existing / active list of videos */}
+        <h4 className="text-xs font-bold text-white uppercase font-mono tracking-wider mb-4 text-left flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" /> Published Videocast Catalog ({allPrepVideos?.length || 0} active video sessions)
+        </h4>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-800 text-slate-500 uppercase tracking-wider font-mono">
+                <th className="py-3 px-4">Video ID</th>
+                <th className="py-3 px-4">Exam / Category</th>
+                <th className="py-3 px-4">Session Title</th>
+                <th className="py-3 px-4">Duration</th>
+                <th className="py-3 px-4">Platform Origin</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 font-sans text-left">
+              {allPrepVideos?.map((video) => {
+                const isCustom = video.videoId.startsWith("custom_video_");
+                return (
+                  <tr key={video.videoId} className="hover:bg-slate-950/10">
+                    <td className="py-3.5 px-4 font-mono text-[10px] text-slate-400">{video.videoId.substring(0, 15)}</td>
+                    <td className="py-3.5 px-4">
+                      <span className="bg-slate-950 text-indigo-400 px-2 py-0.5 rounded border border-indigo-500/10 font-mono text-[10px]">
+                        {video.category}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <p className="text-white font-medium">{video.title}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1 max-w-[250px]">{video.description}</p>
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-300 font-mono">{video.durationText}</td>
+                    <td className="py-3.5 px-4">
+                      {isCustom ? (
+                        <span className="text-emerald-400 text-[10px] font-mono leading-none">&bull; FIRESTORE LIVE</span>
+                      ) : (
+                        <span className="text-slate-500 text-[10px] font-mono leading-none">&bull; SYSTEM LOCAL</span>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4 text-right">
+                      {isCustom ? (
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePrepVideo(video.videoId)}
+                          className="p-1 px-2.2 text-rose-400 hover:text-rose-300 hover:bg-rose-950/20 border border-red-500/10 rounded font-mono text-[10px] uppercase flex items-center gap-1 ml-auto cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" /> Truncate
+                        </button>
+                      ) : (
+                        <span className="text-slate-600 text-[10px] uppercase font-mono tracking-wider">Default Locked</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Upload Test Wizard Modal Form */}
       {isUploadModalOpen && (
         <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center z-50 p-4 font-sans text-slate-100">
@@ -475,11 +796,57 @@ export default function AdminDashboard() {
             <div className="p-6 space-y-6">
               
               {formError && (
-                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-3 text-rose-400 text-xs">
+                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-3 text-rose-400 text-xs text-left">
                   <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
                   <span>{formError}</span>
                 </div>
               )}
+
+              {extractionSuccess && (
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center gap-3 text-emerald-400 text-xs text-left">
+                  <Check className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                  <span>{extractionSuccess}</span>
+                </div>
+              )}
+
+              {/* AI PDF / RAW Text to CBT Converter Section */}
+              <div className="bg-slate-950/60 border border-slate-850 p-5 rounded-2xl text-left">
+                <h4 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase font-mono tracking-wider">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  PDF / Raw Syllabus to CBT Converter (Gemini Core)
+                </h4>
+                <p className="text-slate-500 text-[10px] uppercase font-mono tracking-wide mt-1 mb-3.5">
+                  Paste notes, transcripts, or past papers text below to extract, auto-generate standard options, correct option index, and explanations.
+                </p>
+
+                <textarea
+                  rows={4}
+                  placeholder="e.g. Paste questions or textbook paragraph page here. Gemini will organize four options and correct keys."
+                  value={rawPasteText}
+                  onChange={(e) => setRawPasteText(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-850 hover:border-slate-800 focus:border-red-500 rounded-xl p-3.5 text-xs text-white placeholder-slate-650 focus:outline-none transition-all resize-y font-mono"
+                />
+
+                <div className="flex justify-end mt-3">
+                  <button
+                    disabled={isExtracting}
+                    onClick={handleAIExtractQuestions}
+                    className="px-4 py-2 bg-slate-800 disabled:bg-slate-900 border border-slate-700 hover:border-emerald-500 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer hover:text-emerald-400 transition-colors"
+                  >
+                    {isExtracting ? (
+                      <>
+                        <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                        <span className="font-mono text-[10px] uppercase">Parsing Text...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-mono text-[10px] uppercase">Extract with Gemini AI</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
 
               {/* General Test Parameters */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

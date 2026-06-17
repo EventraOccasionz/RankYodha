@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { DEFAULT_MOCK_TESTS } from "../data/mockTestData";
 import { saveUserAttempt } from "../lib/attempts";
-import { UserAttempt, UserAnswer } from "../types";
+import { UserAttempt, UserAnswer, MockTest } from "../types";
 import { 
   Hourglass, 
   HelpCircle, 
@@ -20,13 +20,15 @@ interface MockTestScreenProps {
   testId: string;
   setScreen: (screen: string) => void;
   setSelectedAttempt: (attempt: UserAttempt) => void;
+  allMockTests?: MockTest[];
 }
 
-export default function MockTestScreen({ testId, setScreen, setSelectedAttempt }: MockTestScreenProps) {
+export default function MockTestScreen({ testId, setScreen, setSelectedAttempt, allMockTests }: MockTestScreenProps) {
   const { user, profile } = useAuth();
   
   // Load current test paper
-  const testPaper = DEFAULT_MOCK_TESTS.find(t => t.testId === testId) || DEFAULT_MOCK_TESTS[0];
+  const testsToUse = allMockTests || DEFAULT_MOCK_TESTS;
+  const testPaper = testsToUse.find(t => t.testId === testId) || testsToUse[0];
   const { questions, durationMinutes, title, category } = testPaper;
 
   // Active question state

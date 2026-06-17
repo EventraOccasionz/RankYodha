@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import Header from "./components/Header";
 import AuthModal from "./components/AuthModal";
@@ -8,20 +8,117 @@ import MockTestScreen from "./screens/MockTestScreen";
 import ResultAnalyticsScreen from "./screens/ResultAnalyticsScreen";
 import PricingScreen from "./screens/PricingScreen";
 import AdminDashboard from "./screens/AdminDashboard";
-import { UserAttempt } from "./types";
+import { UserAttempt, MockTest, PrepVideo } from "./types";
+import { DEFAULT_MOCK_TESTS } from "./data/mockTestData";
+import { SEED_PREP_VIDEOS } from "./data/seedVideos";
+import { db } from "./firebase";
+import { collection, onSnapshot, doc, setDoc } from "firebase/firestore";
 
 export function StandardMain() {
-  const { domainError, setDomainError } = useAuth();
+  const { domainError, setDomainError, user, loading } = useAuth();
   const [screen, setScreen] = useState<"landing" | "dashboard" | "mock-test" | "results" | "pricing" | "admin">("landing");
   const [selectedTestId, setSelectedTestId] = useState<string>("upsc_mock_1");
   const [selectedAttempt, setSelectedAttempt] = useState<UserAttempt | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [copiedHost, setCopiedHost] = useState(false);
 
+  // Real-time custom mock tests from Firestore
+  const [customTests, setCustomTests] = useState<MockTest[]>([]);
+  const [customVideos, setCustomVideos] = useState<PrepVideo[]>([]);
+
+  // Auto-seed collection if empty to force physical creation in Firebase and show in console
+  useEffect(() => {
+    if (loading || !user || user.uid.startsWith("virtual_sandbox_")) {
+      return;
+    }
+    if (customVideos.length === 0) {
+      const seedInitial = async () => {
+        try {
+          const firstVideo = SEED_PREP_VIDEOS[0];
+          await setDoc(doc(db, "prepVideos", firstVideo.videoId), firstVideo);
+        } catch (err) {
+          console.warn("Could not auto-seed first prep video:", err);
+        }
+      };
+      // Give it 2 seconds to ensure onSnapshot has had a chance to fetch
+      const timer = setTimeout(() => {
+        if (customVideos.length === 0) {
+          seedInitial();
+        }
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, user, customVideos]);
+
+  useEffect(() => {
+    if (loading || !user || user.uid.startsWith("virtual_sandbox_")) {
+      setCustomTests([]);
+      return;
+    }
+    try {
+      const unsub = onSnapshot(collection(db, "mockTests"), (snap) => {
+        const tests: MockTest[] = [];
+        snap.forEach(d => {
+          tests.push(d.data() as MockTest);
+        });
+        setCustomTests(tests);
+      }, (err) => {
+        console.warn("Firestore onSnapshot error on mockTests collection:", err);
+      });
+      return () => unsub();
+    } catch (err) {
+      console.warn("Failed to set up real-time custom mock tests subscriber:", err);
+    }
+  }, [loading, user]);
+
+  // Real-time custom prep videos from Firestore
+  useEffect(() => {
+    if (loading || !user || user.uid.startsWith("virtual_sandbox_")) {
+      setCustomVideos([]);
+      return;
+    }
+    try {
+      const unsub = onSnapshot(collection(db, "prepVideos"), (snap) => {
+        const vids: PrepVideo[] = [];
+        snap.forEach(d => {
+          vids.push(d.data() as PrepVideo);
+        });
+        setCustomVideos(vids);
+      }, (err) => {
+        console.warn("Firestore onSnapshot error on prepVideos collection:", err);
+      });
+      return () => unsub();
+    } catch (err) {
+      console.warn("Failed to set up real-time prep videos subscriber:", err);
+    }
+  }, [loading, user]);
+
+  // Consolidate static and real-time custom mock tests
+  const allMockTests = useMemo(() => {
+    const combined = [...DEFAULT_MOCK_TESTS];
+    customTests.forEach(ct => {
+      if (!combined.some(t => t.testId === ct.testId)) {
+        combined.push(ct);
+      }
+    });
+    return combined;
+  }, [customTests]);
+
+  // Consolidate static and real-time custom prep videos (real-time uploaded videos show up on top!)
+  const allPrepVideos = useMemo(() => {
+    const combined = [...customVideos];
+    SEED_PREP_VIDEOS.forEach(sv => {
+      if (!combined.some(v => v.videoId === sv.videoId)) {
+        combined.push(sv);
+      }
+    });
+    return combined;
+  }, [customVideos]);
+
   const renderActiveScreen = () => {
     switch (screen) {
       case "landing":
-        return <LandingPage setScreen={setScreen} setSelectedTestId={setSelectedTestId} onOpenAuth={() => setAuthModalOpen(true)} />;
+        return <LandingPage setScreen={setScreen} setSelectedTestId={setSelectedTestId} onOpenAuth={() => setAuthModalOpen(true)} allMockTests={allMockTests} allPrepVideos={allPrepVideos} />;
       case "dashboard":
         return (
           <StudentDashboard 
@@ -32,6 +129,7 @@ export function StandardMain() {
               setScreen("results");
             }} 
             onOpenAuth={() => setAuthModalOpen(true)}
+            allMockTests={allMockTests}
           />
         );
       case "mock-test":
@@ -43,25 +141,27 @@ export function StandardMain() {
               setSelectedAttempt(att);
               setScreen("results");
             }} 
+            allMockTests={allMockTests}
           />
         );
       case "results":
         return selectedAttempt ? (
-          <ResultAnalyticsScreen attempt={selectedAttempt} setScreen={setScreen} />
+          <ResultAnalyticsScreen attempt={selectedAttempt} setScreen={setScreen} allMockTests={allMockTests} />
         ) : (
           <StudentDashboard 
             setScreen={setScreen} 
             setSelectedTestId={setSelectedTestId} 
             setSelectedAttempt={setSelectedAttempt} 
             onOpenAuth={() => setAuthModalOpen(true)} 
+            allMockTests={allMockTests}
           />
         );
       case "pricing":
-        return <PricingScreen setScreen={setScreen} />;
+        return <PricingScreen setScreen={setScreen} allMockTests={allMockTests} initialSelectedTestId={selectedTestId} setSelectedTestId={setSelectedTestId} />;
       case "admin":
-        return <AdminDashboard />;
+        return <AdminDashboard allPrepVideos={allPrepVideos} />;
       default:
-        return <LandingPage setScreen={setScreen} setSelectedTestId={setSelectedTestId} onOpenAuth={() => setAuthModalOpen(true)} />;
+        return <LandingPage setScreen={setScreen} setSelectedTestId={setSelectedTestId} onOpenAuth={() => setAuthModalOpen(true)} allMockTests={allMockTests} allPrepVideos={allPrepVideos} />;
     }
   };
 
