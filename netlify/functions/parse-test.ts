@@ -36,20 +36,16 @@ export const handler = async (event: any) => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return {
-        statusCode: 200,
+        statusCode: 401,
         headers,
         body: JSON.stringify({
           success: false,
-          error: "GEMINI_API_KEY is not configured in Netlify Environment Variables.",
-          mockData: [
-            {
-              questionText: "Sample Extracted Question: Which layer of the atmosphere contains the ozone layer?",
-              options: ["Troposphere", "Stratosphere", "Mesosphere", "Thermosphere"],
-              correctOptionIndex: 1,
-              explanation: "The ozone layer is a region of Earth's stratosphere that absorbs most of the Sun's ultraviolet radiation.",
-              subject: "Geography / Environment"
-            }
-          ]
+          error: "GEMINI_API_KEY is not configured in Netlify's Environment Variables.\n\n" +
+                 "To set this securely:\n" +
+                 "1. Go to your Netlify Dashboard for this site.\n" +
+                 "2. Navigate to 'Site configuration' > 'Environment variables'.\n" +
+                 "3. Add a new variable named 'GEMINI_API_KEY'.\n" +
+                 "4. Ensure it is marked as 'Secret' so it won't be exposed in logs or UI."
         }),
       };
     }
