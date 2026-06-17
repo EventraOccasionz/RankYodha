@@ -8,6 +8,30 @@ interface QuestionSchema {
   subject: string;
 }
 
+function getGeminiClient(keyString: string): GoogleGenAI {
+  if (keyString.startsWith("AIzaSy")) {
+    return new GoogleGenAI({
+      apiKey: keyString,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
+      },
+    });
+  } else {
+    // If it's an OAuth access token, pass it securely in the Authorization Header
+    return new GoogleGenAI({
+      apiKey: "",
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+          "Authorization": `Bearer ${keyString}`,
+        },
+      },
+    });
+  }
+}
+
 export const handler = async (event: any) => {
   const headers = {
     "Access-Control-Allow-Origin": "*",
@@ -50,14 +74,7 @@ export const handler = async (event: any) => {
       };
     }
 
-    const ai = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build",
-        },
-      },
-    });
+    const ai = getGeminiClient(apiKey);
 
     const body = JSON.parse(event.body || "{}");
     const { rawText, category } = body;

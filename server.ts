@@ -9,17 +9,35 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-// Initialize GoogleGenAI securely on the server-side only
-const ai = process.env.GEMINI_API_KEY
-  ? new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
+// Helper to initialize GoogleGenAI with either standard API Key or Bearer token
+function getGeminiClient(keyString: string): GoogleGenAI {
+  if (keyString.startsWith("AIzaSy")) {
+    return new GoogleGenAI({
+      apiKey: keyString,
       httpOptions: {
         headers: {
           "User-Agent": "aistudio-build",
         },
       },
-    })
-  : null;
+    });
+  } else {
+    // If it's a token (e.g. starting with AQ. or ya29.), pass it securely as a Bearer Token
+    // We pass apiKey: "" to prevent the SDK from appending key query parameter
+    return new GoogleGenAI({
+      apiKey: "",
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+          "Authorization": `Bearer ${keyString}`,
+        },
+      },
+    });
+  }
+}
+
+// Initialize GoogleGenAI securely on the server-side only
+const apiKeyEnv = process.env.GEMINI_API_KEY;
+const ai = apiKeyEnv ? getGeminiClient(apiKeyEnv) : null;
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
