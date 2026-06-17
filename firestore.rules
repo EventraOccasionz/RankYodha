@@ -111,8 +111,8 @@ service cloud.firestore {
     // Blueprint Validation for DeletedAsset Entity
     function isValidDeletedAsset(data) {
       return data.keys().hasAll(['deleted', 'deletedAt']) &&
-             data.deleted is bool &&
-             data.deletedAt is string && data.deletedAt.size() <= 128;
+             (data.deleted == true || data.deleted == false) &&
+             data.deletedAt is string && data.deletedAt.size() <= 200;
     }
 
     // --- FIRESTORE path rules matching definitions ---
@@ -188,7 +188,7 @@ service cloud.firestore {
 
     // 6. Deleted assets reference rules
     match /deletedAssets/{assetId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create, update: if isSignedIn() && isValidId(assetId) && isValidDeletedAsset(incoming());
       allow delete: if isSignedIn();
     }

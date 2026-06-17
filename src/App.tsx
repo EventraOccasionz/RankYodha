@@ -94,10 +94,9 @@ export function StandardMain() {
     }
   }, [loading, user]);
 
-  // Real-time deleted assets from Firestore
+  // Real-time deleted assets from Firestore (available for everyone to ensure hidden elements are filtered correctly)
   useEffect(() => {
-    if (loading || !user || user.uid.startsWith("virtual_sandbox_")) {
-      setDeletedAssetIds([]);
+    if (loading) {
       return;
     }
     try {
@@ -114,7 +113,7 @@ export function StandardMain() {
     } catch (err) {
       console.warn("Failed to set up real-time deleted assets subscriber:", err);
     }
-  }, [loading, user]);
+  }, [loading]);
 
   // Consolidate static and real-time custom mock tests
   const allMockTests = useMemo(() => {
