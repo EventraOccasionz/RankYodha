@@ -55,6 +55,30 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
   const [videoSearch, setVideoSearch] = useState("");
   const [videoFilterCategory, setVideoFilterCategory] = useState("ALL");
   const [selectedVideoId, setSelectedVideoId] = useState<string | null>(null);
+  const [playingVideoId, setPlayingVideoId] = useState<string | null>(null);
+
+  const getEmbedUrl = (url: string | undefined | null, autoplay: boolean = false) => {
+    if (!url) return "";
+    let regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    let match = url.match(regExp);
+    if (match && match[2].length === 11) {
+      return `https://www.youtube.com/embed/${match[2]}${autoplay ? "?autoplay=1&mute=0&rel=0" : "?rel=0"}`;
+    }
+    let vimeoRegExp = /vimeo\.com\/(?:channels\/(?:\w+\/)?|groups\/([^\/]*)\/videos\/|album\/(\d+)\/video\/|video\/|)(\d+)(?:$|\/|\?)/;
+    let vimeoMatch = url.match(vimeoRegExp);
+    if (vimeoMatch) {
+      return `https://player.vimeo.com/video/${vimeoMatch[3]}${autoplay ? "?autoplay=1" : ""}`;
+    }
+    return url;
+  };
+
+  const isHtml5VideoUrl = (url: string | undefined | null) => {
+    if (!url) return false;
+    const cleanUrl = url.trim().toLowerCase();
+    const hasExtension = /\.(mp4|webm|ogg|mov|m4v|m3u8)(?:$|\?)/i.test(cleanUrl);
+    const hasYoutubeVimeo = /youtu\.be|youtube\.com|youtube-nocookie\.com|vimeo\.com/i.test(cleanUrl);
+    return hasExtension || (!hasYoutubeVimeo && cleanUrl.startsWith("http"));
+  };
 
   // General Categories metadata
   const categories = [
@@ -657,15 +681,51 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
               
               {/* Left Side: Active Play Stage Console */}
               <div className="lg:col-span-2 bg-[#111111] border border-[#222222] p-5">
-                <div className="aspect-video w-full bg-[#050505] relative mb-5 group border border-[#1A1A1A]">
-                  <iframe
-                    title={activeVideo.title}
-                    src={activeVideo.videoUrl}
-                    className="absolute inset-0 w-full h-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                    referrerPolicy="no-referrer"
-                  />
+                <div className="aspect-video w-full bg-[#050505] relative mb-5 group border border-[#1A1A1A] overflow-hidden">
+                  {playingVideoId === activeVideo.videoId ? (
+                    isHtml5VideoUrl(activeVideo.videoUrl) ? (
+                      <video
+                        src={activeVideo.videoUrl}
+                        controls
+                        autoPlay
+                        className="absolute inset-0 w-full h-full object-contain bg-black"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <iframe
+                        title={activeVideo.title}
+                        src={getEmbedUrl(activeVideo.videoUrl, true)}
+                        className="absolute inset-0 w-full h-full border-none"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        referrerPolicy="no-referrer"
+                      />
+                    )
+                  ) : (
+                    <div 
+                      onClick={() => setPlayingVideoId(activeVideo.videoId)}
+                      className="absolute inset-0 w-full h-full flex flex-col items-center justify-center cursor-pointer bg-gradient-to-t from-black via-[#0B0B0B] to-black group"
+                    >
+                      {/* Grid/Line graphic background effect */}
+                      <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#FF3B3F_1px,transparent_1px)] [background-size:16px_16px]" />
+                      
+                      <div className="relative z-10 flex flex-col items-center gap-4 animate-fadeIn">
+                        {/* High-end hovering play button wrapper with red outline glow */}
+                        <div className="w-16 h-16 rounded-full bg-[#FF3B3F] hover:bg-white text-white hover:text-black flex items-center justify-center transition-all duration-300 transform group-hover:scale-110 shadow-[0_0_20px_rgba(255,59,63,0.4)] group-hover:shadow-[0_0_30px_rgba(255,59,63,0.7)]">
+                          <Play className="w-6 h-6 fill-current ml-1" />
+                        </div>
+                        
+                        <div className="text-center px-4">
+                          <span className="font-mono text-[9px] font-black uppercase tracking-[0.2em] text-[#FF3B3F] block mb-1 bg-[#1C1112] px-3 py-1 border border-[#FF3B3F]/20">
+                            CLICK TO STREAM LECTURE IN-APP
+                          </span>
+                          <span className="text-xs text-slate-400 font-mono">
+                            {activeVideo.durationText} videocast
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-3 mb-3">
@@ -712,8 +772,11 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
                       return (
                         <div
                           key={vid.videoId}
-                          onClick={() => setSelectedVideoId(vid.videoId)}
-                          className={`p-4 text-left transition-all duration-150 cursor-pointer flex flex-col justify-between ${
+                          onClick={() => {
+                            setSelectedVideoId(vid.videoId);
+                            setPlayingVideoId(vid.videoId); // Auto start play on click
+                          }}
+                          className={`p-4 text-left transition-all duration-150 cursor-pointer flex flex-col justify-between group ${
                             isCurrent
                               ? "bg-[#1C1112] border-l-2 border-[#FF3B3F] text-white"
                               : "bg-[#090909] border border-transparent hover:border-[#222] text-slate-300 hover:text-white"
@@ -736,21 +799,39 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
                             <p className="text-xs font-bold font-sans tracking-tight mb-1 font-semibold line-clamp-2">
                               {vid.title}
                             </p>
-                            <p className="text-[10px] text-slate-550 line-clamp-1">
+                            <p className="text-[10px] text-slate-500 line-clamp-1">
                               {vid.description}
                             </p>
                           </div>
 
-                          <div className="mt-3 flex items-center justify-end text-[9px] font-mono uppercase tracking-wider font-semibold text-[#FF3B3F]">
-                            {isCurrent ? (
-                              <span className="flex items-center gap-1 text-[8px] tracking-widest text-[#FF3B3F]">
-                                NOW PLAYING
-                              </span>
-                            ) : (
-                              <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                                SELECT LECTURE &rarr;
-                              </span>
-                            )}
+                          <div className="mt-3 flex items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedVideoId(vid.videoId);
+                                setPlayingVideoId(vid.videoId);
+                              }}
+                              className={`px-2.5 py-1 text-[8px] font-mono uppercase tracking-wider font-bold transition-all flex items-center gap-1 border cursor-pointer ${
+                                isCurrent
+                                  ? "bg-[#FF3B3F] border-[#FF3B3F] text-white"
+                                  : "bg-[#141414] border-[#222] text-slate-300 hover:bg-[#FF3B3F] hover:border-[#FF3B3F] hover:text-white"
+                              }`}
+                            >
+                              <Play className="w-2.5 h-2.5 fill-current" /> Play Video
+                            </button>
+
+                            <div className="text-[9px] font-mono uppercase tracking-wider font-semibold text-[#FF3B3F]">
+                              {isCurrent ? (
+                                <span className="flex items-center gap-1 text-[8px] tracking-widest text-[#FF3B3F] font-bold">
+                                  NOW PLAYING
+                                </span>
+                              ) : (
+                                <span className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                  SELECT LECTURE &rarr;
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -758,7 +839,6 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
                   </div>
                 )}
               </div>
-
             </div>
           ) : (
             <div className="bg-[#111111] border border-[#222222] p-16 text-center">
@@ -804,13 +884,23 @@ export default function LandingPage({ setScreen, setSelectedTestId, onOpenAuth, 
               {/* Photo & Video Playback */}
               <div className="relative aspect-video md:aspect-square bg-black border border-[#222] flex items-center justify-center overflow-hidden group">
                 {currentTestimonial.videoUrl && activeVideoEmbed === currentTestimonial.id ? (
-                  <iframe 
-                    src={currentTestimonial.videoUrl} 
-                    title="Video Testimonial Speaker"
-                    className="w-full h-full border-none"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
+                  isHtml5VideoUrl(currentTestimonial.videoUrl) ? (
+                    <video
+                      src={currentTestimonial.videoUrl}
+                      controls
+                      autoPlay
+                      className="w-full h-full object-contain bg-black"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <iframe 
+                      src={getEmbedUrl(currentTestimonial.videoUrl, true)} 
+                      title="Video Testimonial Speaker"
+                      className="w-full h-full border-none"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  )
                 ) : (
                   <>
                     <img 
