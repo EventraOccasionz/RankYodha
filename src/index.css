@@ -34,3 +34,17 @@
   background: #FF3B3F;
 }
 
+/* Global cursor-pointer standardizations for clickable elements */
+button,
+[role="button"],
+a {
+  cursor: pointer;
+}
+
+button:disabled,
+[role="button"]:disabled,
+button[disabled] {
+  cursor: not-allowed !important;
+}
+
+

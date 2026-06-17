@@ -161,9 +161,9 @@ service cloud.firestore {
     // 3. Mock Examination tests database rules
     match /mockTests/{testId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(testId) && isValidMockTest(incoming());
-      allow update: if isSignedIn() && isValidId(testId) && isValidMockTest(incoming());
-      allow delete: if isSignedIn();
+      allow create: if isAdmin() && isValidId(testId) && isValidMockTest(incoming());
+      allow update: if isAdmin() && isValidId(testId) && isValidMockTest(incoming());
+      allow delete: if isAdmin();
     }
 
     // 4. Detailed history log attempts subcollections
@@ -181,16 +181,16 @@ service cloud.firestore {
     // 5. Prep videos database rules
     match /prepVideos/{videoId} {
       allow read: if true;
-      allow create: if isSignedIn() && isValidId(videoId) && isValidPrepVideo(incoming());
-      allow update: if isSignedIn() && isValidId(videoId) && isValidPrepVideo(incoming());
-      allow delete: if isSignedIn();
+      allow create: if isAdmin() && isValidId(videoId) && isValidPrepVideo(incoming());
+      allow update: if isAdmin() && isValidId(videoId) && isValidPrepVideo(incoming());
+      allow delete: if isAdmin();
     }
 
     // 6. Deleted assets reference rules
     match /deletedAssets/{assetId} {
       allow read: if true;
-      allow create, update: if isSignedIn() && isValidId(assetId) && isValidDeletedAsset(incoming());
-      allow delete: if isSignedIn();
+      allow create, update: if isAdmin() && isValidId(assetId) && isValidDeletedAsset(incoming());
+      allow delete: if isAdmin();
     }
   }
 }
