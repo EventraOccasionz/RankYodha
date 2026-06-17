@@ -493,7 +493,7 @@ export default function AdminDashboard({ allPrepVideos }: { allPrepVideos?: Prep
             <LineChart className="w-4 h-4 text-emerald-400" /> Platform Revenue trends (Weekly)
           </h3>
           <div className="w-full h-64 relative" style={{ width: "100%", height: "256px" }}>
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height={256}>
               <AreaChart data={revenueData}>
                 <defs>
                   <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">

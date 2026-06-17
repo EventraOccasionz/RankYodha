@@ -219,7 +219,7 @@ export default function ResultAnalyticsScreen({ attempt, setScreen, allMockTests
           </h3>
           <div className="h-60 flex items-center justify-between">
             <div className="w-1/2 h-60 relative" style={{ width: "50%", height: "240px", minHeight: "240px" }}>
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
                    <Pie
                     data={pieData}
@@ -281,7 +281,7 @@ export default function ResultAnalyticsScreen({ attempt, setScreen, allMockTests
             {barData.length === 0 ? (
               <p className="text-xs text-[#666] pt-20 text-center font-mono uppercase tracking-widest">No Section metrics registered</p>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={barData} layout="vertical">
                   <XAxis type="number" stroke="#666" style={{ fontSize: '10px', fontFamily: 'monospace' }} />
                   <YAxis dataKey="subject" type="category" stroke="#666" width={80} style={{ fontSize: '10px', fontFamily: 'monospace' }} />

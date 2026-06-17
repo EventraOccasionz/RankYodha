@@ -104,12 +104,8 @@ service cloud.firestore {
     function isValidPrepVideo(data) {
       return data.keys().hasAll(['videoId', 'title', 'videoUrl']) &&
              data.videoId is string && data.videoId.size() <= 128 &&
-             data.title is string && data.title.size() <= 500 &&
-             data.videoUrl is string && data.videoUrl.size() <= 1000 &&
-             (!data.keys().hasAll(['category']) || (data.category is string && data.category.size() <= 200)) &&
-             (!data.keys().hasAll(['description']) || (data.description is string && data.description.size() <= 2000)) &&
-             (!data.keys().hasAll(['durationText']) || (data.durationText is string && data.durationText.size() <= 100)) &&
-             (!data.keys().hasAll(['createdAt']) || data.createdAt is string);
+             data.title is string && data.title.size() <= 1000 &&
+             data.videoUrl is string && data.videoUrl.size() <= 2000;
     }
 
     // --- FIRESTORE path rules matching definitions ---
