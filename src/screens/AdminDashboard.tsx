@@ -403,7 +403,11 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
 
       if (usedClientFallback) {
         console.log("Using secure client-side parse with fallback...");
-        const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "AQ.Ab8RN6Lvo5abh84b525SXIlqYoB_GgdCQPEw8VUcx5wptZJ3Bw";
+        const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+        
+        if (!apiKey) {
+          throw new Error("GEMINI_API_KEY / VITE_GEMINI_API_KEY variable is missing. Please follow the Setup Handbook below to configure your key in your Netlify Environment settings.");
+        }
         
         let clientAi;
         if (apiKey.startsWith("AIza") || apiKey.startsWith("AQ.")) {
