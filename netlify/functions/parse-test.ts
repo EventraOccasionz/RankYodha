@@ -9,7 +9,7 @@ interface QuestionSchema {
 }
 
 function getGeminiClient(keyString: string): GoogleGenAI {
-  if (keyString.startsWith("AIzaSy")) {
+  if (keyString.startsWith("AIza") || keyString.startsWith("AQ.")) {
     return new GoogleGenAI({
       apiKey: keyString,
       httpOptions: {
@@ -30,6 +30,49 @@ function getGeminiClient(keyString: string): GoogleGenAI {
       },
     });
   }
+}
+
+// Resilient wrapper to handle temporary model availability issues (503), spikes, or 429 quota exhaustion
+async function generateContentWithFallback(aiClient: GoogleGenAI, options: {
+  contents: any[];
+  config: any;
+}) {
+  const modelsToTry = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"];
+  let lastError: any = null;
+
+  for (const model of modelsToTry) {
+    try {
+      console.log(`[Gemini Engine] Netlify function attempting generation with model: ${model}`);
+      const response = await aiClient.models.generateContent({
+        model,
+        contents: options.contents,
+        config: options.config,
+      });
+      return response;
+    } catch (err: any) {
+      console.warn(`[Gemini Engine] Netlify model ${model} failed:`, err?.status || err?.code || err?.message || err);
+      lastError = err;
+      
+      const isTemporary = 
+        err?.status === "UNAVAILABLE" || 
+        err?.code === 503 ||
+        err?.message?.includes("503") || 
+        err?.message?.includes("UNAVAILABLE") || 
+        err?.message?.includes("high demand") ||
+        err?.status === "RESOURCE_EXHAUSTED" || 
+        err?.code === 429 || 
+        err?.message?.includes("429") ||
+        err?.message?.includes("RESOURCE_EXHAUSTED") ||
+        err?.message?.includes("quota");
+
+      if (isTemporary) {
+        console.warn(`[Gemini Engine] Temporary serverless function error or high-demand spike. Falling back to next resilient model...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
 }
 
 export const handler = async (event: any) => {
@@ -77,35 +120,42 @@ export const handler = async (event: any) => {
     const ai = getGeminiClient(apiKey);
 
     const body = JSON.parse(event.body || "{}");
-    const { rawText, category } = body;
+    const { rawText, pdfBase64, category } = body;
 
-    if (!rawText || !rawText.trim()) {
+    if ((!rawText || !rawText.trim()) && !pdfBase64) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: "Syllabus/Test raw content is required for extraction." }),
+        body: JSON.stringify({ error: "Syllabus/Test raw content or a PDF file is required for extraction." }),
       };
     }
 
     const streamCategory = category || "UPSC";
 
     const systemPrompt = `You are an expert EdTech exam papers extractor.
-Extract a list of realistic multiple choice questions from the provided textbook notes, syllabus, or exam transcript text.
+Extract a list of realistic multiple choice questions from the provided textbook notes, syllabus, exam papers, or raw notes.
 Ensure each question has exactly 4 options, a correct choice index (0 for Option A, 1 for B, 2 for C, 3 for D), an explanation, and a subject matching study streams.
 The target exam category stream is ${streamCategory}.`;
 
-    const userPrompt = `Parse the following text and extract realistic mock questions.
+    const userPrompt = `Parse the provided material and extract realistic mock questions.
 Output must follow the specified JSON schema.
-If the text does not contain explicit options, generate high-quality options, correct indices, and clear conceptual explanations from your knowledge base based on the topics discussed in the text.
+If the content does not contain explicit options, generate high-quality options, correct indices, and clear conceptual explanations from your knowledge base based on the topics discussed in the material.`;
 
-Text to parse:
-"""
-${rawText}
-"""`;
+    const contents: any[] = [];
+    if (pdfBase64) {
+      contents.push({
+        inlineData: {
+          mimeType: "application/pdf",
+          data: pdfBase64
+        }
+      });
+      contents.push(`${userPrompt}\n\nPlease parse this attached PDF document to generate questions.`);
+    } else {
+      contents.push(`${userPrompt}\n\nText to parse:\n"""\n${rawText}\n"""`);
+    }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: userPrompt,
+    const response = await generateContentWithFallback(ai, {
+      contents: contents,
       config: {
         systemInstruction: systemPrompt,
         responseMimeType: "application/json",

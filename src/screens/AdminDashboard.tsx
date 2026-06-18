@@ -28,7 +28,8 @@ import {
   ArrowRight,
   Video,
   Play,
-  FileVideo
+  FileVideo,
+  FileText
 } from "lucide-react";
 import { 
   AreaChart, 
@@ -38,6 +39,49 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from "recharts";
+
+// Resilient wrapper to handle temporary client-side model availability issues (503), spikes, or 429 quota exhaustion
+async function generateContentWithFallbackClient(clientAi: any, options: {
+  contents: any[];
+  config: any;
+}) {
+  const modelsToTry = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"];
+  let lastError: any = null;
+
+  for (const model of modelsToTry) {
+    try {
+      console.log(`[Gemini Engine] Client attempting generation with model: ${model}`);
+      const response = await clientAi.models.generateContent({
+        model,
+        contents: options.contents,
+        config: options.config,
+      });
+      return response;
+    } catch (err: any) {
+      console.warn(`[Gemini Engine] Client model ${model} failed:`, err?.status || err?.code || err?.message || err);
+      lastError = err;
+      
+      const isTemporary = 
+        err?.status === "UNAVAILABLE" || 
+        err?.code === 503 ||
+        err?.message?.includes("503") || 
+        err?.message?.includes("UNAVAILABLE") || 
+        err?.message?.includes("high demand") ||
+        err?.status === "RESOURCE_EXHAUSTED" || 
+        err?.code === 429 || 
+        err?.message?.includes("429") ||
+        err?.message?.includes("RESOURCE_EXHAUSTED") ||
+        err?.message?.includes("quota");
+
+      if (isTemporary) {
+        console.warn(`[Gemini Engine] Temporary client error or high-demand spike. Falling back to next resilient model...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
 
 export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPrepVideos?: PrepVideo[], allMockTests?: MockTest[] }) {
   const { user, profile, isAdmin } = useAuth();
@@ -71,6 +115,90 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
   const [rawPasteText, setRawPasteText] = useState("");
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionSuccess, setExtractionSuccess] = useState<string | null>(null);
+  const [showConfigHelper, setShowConfigHelper] = useState(false);
+  const [extractionMethod, setExtractionMethod] = useState<"text" | "pdf">("text");
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
+  const [pdfBase64, setPdfBase64] = useState<string | null>(null);
+  const [isDraggingPdf, setIsDraggingPdf] = useState(false);
+
+  const handlePdfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (file.type !== "application/pdf") {
+      setFormError("Invalid file type. Please select a valid PDF file.");
+      setSelectedPdfFile(null);
+      setPdfBase64(null);
+      return;
+    }
+    
+    if (file.size > 15 * 1024 * 1024) { // 15MB limit
+      setFormError("PDF file size exceeds the 15MB limit. Please upload a smaller document.");
+      setSelectedPdfFile(null);
+      setPdfBase64(null);
+      return;
+    }
+
+    setFormError("");
+    setExtractionSuccess(null);
+    setSelectedPdfFile(file);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const resultString = reader.result as string;
+      const splitBase64 = resultString.split(",")[1] || resultString;
+      setPdfBase64(splitBase64);
+    };
+    reader.onerror = () => {
+      setFormError("Failed to read the PDF file.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingPdf(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDraggingPdf(false);
+  };
+
+  const handleDropPdf = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingPdf(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+      setFormError("Required PDF document format. Please drop a valid PDF file.");
+      setSelectedPdfFile(null);
+      setPdfBase64(null);
+      return;
+    }
+
+    if (file.size > 15 * 1024 * 1024) {
+      setFormError("PDF size limits exceed 15MB. Please upload a smaller document.");
+      setSelectedPdfFile(null);
+      setPdfBase64(null);
+      return;
+    }
+
+    setFormError("");
+    setExtractionSuccess(null);
+    setSelectedPdfFile(file);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const resultString = reader.result as string;
+      const splitBase64 = resultString.split(",")[1] || resultString;
+      setPdfBase64(splitBase64);
+    };
+    reader.onerror = () => {
+      setFormError("Failed to parse dropped PDF.");
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Form states for new video
   const [videoTitle, setVideoTitle] = useState("");
@@ -234,10 +362,15 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
   };
 
   const handleAIExtractQuestions = async () => {
-    if (!rawPasteText.trim()) {
+    if (extractionMethod === "text" && !rawPasteText.trim()) {
       setFormError("Please enter some text, book transcripts, syllabus details, or raw questions to analyze.");
       return;
     }
+    if (extractionMethod === "pdf" && !pdfBase64) {
+      setFormError("Please select or drop a valid PDF file to analyze.");
+      return;
+    }
+
     setFormError("");
     setExtractionSuccess(null);
     setIsExtracting(true);
@@ -246,10 +379,14 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
       let usedClientFallback = false;
 
       try {
+        const payload = extractionMethod === "pdf" 
+          ? { pdfBase64, category: testCategory }
+          : { rawText: rawPasteText, category: testCategory };
+
         const response = await fetch("/api/gemini/parse-test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rawText: rawPasteText, category: testCategory })
+          body: JSON.stringify(payload)
         });
         
         const contentType = response.headers.get("content-type");
@@ -269,7 +406,7 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
         const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || "AQ.Ab8RN6Lvo5abh84b525SXIlqYoB_GgdCQPEw8VUcx5wptZJ3Bw";
         
         let clientAi;
-        if (apiKey.startsWith("AIzaSy")) {
+        if (apiKey.startsWith("AIza") || apiKey.startsWith("AQ.")) {
           clientAi = new GoogleGenAI({
             apiKey: apiKey,
             httpOptions: {
@@ -292,22 +429,29 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
         }
 
         const systemPrompt = `You are an expert EdTech exam papers extractor.
-Extract a list of realistic multiple choice questions from the provided textbook notes, syllabus, or exam transcript text.
+Extract a list of realistic multiple choice questions from the provided textbook notes, syllabus, exam papers, or raw notes.
 Ensure each question has exactly 4 options, a correct choice index (0 for Option A, 1 for B, 2 for C, 3 for D), an explanation, and a subject matching study streams.
 The target exam category stream is ${testCategory || "UPSC"}.`;
 
-        const userPrompt = `Parse the following text and extract realistic mock questions.
+        const userPrompt = `Parse the provided material and extract realistic mock questions.
 Output must follow the specified JSON schema.
-If the text does not contain explicit options, generate high-quality options, correct indices, and clear conceptual explanations from your knowledge base based on the topics discussed in the text.
+If the content does not contain explicit options, generate high-quality options, correct indices, and clear conceptual explanations from your knowledge base based on the topics discussed in the material.`;
 
-Text to parse:
-"""
-${rawPasteText}
-"""`;
+        const contents: any[] = [];
+        if (extractionMethod === "pdf" && pdfBase64) {
+          contents.push({
+            inlineData: {
+              mimeType: "application/pdf",
+              data: pdfBase64
+            }
+          });
+          contents.push(`${userPrompt}\n\nPlease parse this attached PDF document to generate questions.`);
+        } else {
+          contents.push(`${userPrompt}\n\nText to parse:\n"""\n${rawPasteText}\n"""`);
+        }
 
-        const responseJson = await clientAi.models.generateContent({
-          model: "gemini-3.5-flash",
-          contents: userPrompt,
+        const responseJson = await generateContentWithFallbackClient(clientAi, {
+          contents: contents,
           config: {
             systemInstruction: systemPrompt,
             responseMimeType: "application/json",
@@ -910,9 +1054,76 @@ ${rawPasteText}
             <div className="p-6 space-y-6">
               
               {formError && (
-                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center gap-3 text-rose-400 text-xs text-left">
-                  <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0" />
-                  <span>{formError}</span>
+                <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex flex-col gap-3 text-rose-400 text-xs text-left">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+                    <span className="whitespace-pre-line leading-relaxed flex-1">{formError}</span>
+                  </div>
+                  <div className="mt-1 pt-2 border-t border-rose-550/10 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowConfigHelper(!showConfigHelper)}
+                      className="text-[10px] font-mono uppercase bg-rose-950/35 hover:bg-rose-950/60 text-rose-300 border border-rose-500/20 rounded px-2.5 py-1 flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      {showConfigHelper ? "Hide Setup Handbook" : "Show Netlify Setup Handbook"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Collapsible Netlify deployment / Gemini key configuration handbook */}
+              {(showConfigHelper || !formError) && (
+                <div className="p-5 bg-gradient-to-br from-slate-950 to-slate-900 border border-slate-800 rounded-2xl text-left space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <HelpCircle className="w-5 h-5 text-emerald-400" />
+                      <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">Netlify & Gemini Config Handbook</h4>
+                    </div>
+                    {formError && (
+                      <button
+                        type="button"
+                        onClick={() => setShowConfigHelper(false)}
+                        className="text-[10px] font-mono uppercase text-slate-400 hover:text-white"
+                      >
+                        [ Dismiss ]
+                      </button>
+                    )}
+                  </div>
+                  
+                  <p className="text-slate-400 text-[11px] leading-relaxed">
+                    Netlify is a robust static-hosting platform. While standard web applications cannot run normal background server processes (like <code className="text-slate-200 font-mono">server.ts</code>), this system has been fully optimized with <strong className="text-emerald-400">Netlify Serverless Functions</strong> and a secure developer fallback wrapper.
+                  </p>
+
+                  <div className="space-y-3 font-sans text-[11px] text-slate-300">
+                    <div className="flex gap-3">
+                      <span className="w-5 h-5 bg-slate-800 text-emerald-400 font-mono font-bold rounded flex items-center justify-center flex-shrink-0">1</span>
+                      <p className="leading-relaxed">
+                        <strong className="text-white">Get a Standard Developer Key:</strong> Go to Google AI Studio at <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-emerald-400 font-medium hover:underline inline-flex items-center gap-0.5">aistudio.google.com</a>, request a free key, and ensure it starts with <code className="bg-slate-950 px-1 py-0.5 rounded text-white font-mono text-[10px]">AIzaSy...</code>
+                      </p>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <span className="w-5 h-5 bg-slate-800 text-emerald-400 font-mono font-bold rounded flex items-center justify-center flex-shrink-0">2</span>
+                      <p className="leading-relaxed">
+                        <strong className="text-white">Configure in Netlify:</strong> Log into your Netlify dashboard, navigate to <strong className="text-slate-100">Site Configuration</strong> &gt; <strong className="text-slate-100">Environment variables</strong>, and click <strong className="text-slate-100">Add a variable</strong>.
+                      </p>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <span className="w-5 h-5 bg-slate-800 text-emerald-400 font-mono font-bold rounded flex items-center justify-center flex-shrink-0">3</span>
+                      <p className="leading-relaxed">
+                        <strong className="text-white">Set the Secret Variable:</strong> Define Key as <code className="bg-emerald-950/40 text-emerald-300 px-1.5 py-0.5 rounded font-mono font-bold select-all text-[10px]">GEMINI_API_KEY</code>, paste your standard <code className="text-white font-mono">AIzaSy...</code> key, and mark the variable as <strong className="text-emerald-400">Secret</strong> so it never leaks.
+                      </p>
+                    </div>
+
+                    <div className="flex gap-3">
+                      <span className="w-5 h-5 bg-slate-800 text-emerald-400 font-mono font-bold rounded flex items-center justify-center flex-shrink-0">4</span>
+                      <p className="leading-relaxed">
+                        <strong className="text-white">Trigger a Redeploy:</strong> In Netlify, go to <strong className="text-slate-100">Deploys</strong> &gt; <strong className="text-slate-100">Trigger deploy</strong> &gt; <strong className="text-slate-100">Clear cache and deploy site</strong> to activate the brand new environment variables.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -924,22 +1135,110 @@ ${rawPasteText}
               )}
 
               {/* AI PDF / RAW Text to CBT Converter Section */}
-              <div className="bg-slate-950/60 border border-slate-850 p-5 rounded-2xl text-left">
-                <h4 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase font-mono tracking-wider">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                  PDF / Raw Syllabus to CBT Converter (Gemini Core)
-                </h4>
-                <p className="text-slate-500 text-[10px] uppercase font-mono tracking-wide mt-1 mb-3.5">
-                  Paste notes, transcripts, or past papers text below to extract, auto-generate standard options, correct option index, and explanations.
+              <div className="bg-slate-950/60 border border-slate-850 p-5 rounded-2xl text-left space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-white flex items-center gap-1.5 uppercase font-mono tracking-wider">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    PDF / Raw Syllabus to CBT Converter (Gemini Core)
+                  </h4>
+                </div>
+                
+                <p className="text-slate-500 text-[10px] uppercase font-mono tracking-wide">
+                  Select a method to upload syllabus notes, exam questions, or textbooks to convert directly into standard CBT format.
                 </p>
 
-                <textarea
-                  rows={4}
-                  placeholder="e.g. Paste questions or textbook paragraph page here. Gemini will organize four options and correct keys."
-                  value={rawPasteText}
-                  onChange={(e) => setRawPasteText(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-850 hover:border-slate-800 focus:border-red-500 rounded-xl p-3.5 text-xs text-white placeholder-slate-650 focus:outline-none transition-all resize-y font-mono"
-                />
+                {/* Mode Selector Tabs */}
+                <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setExtractionMethod("text")}
+                    className={`flex-1 py-1.5 text-[10px] uppercase tracking-wider rounded-lg transition-all font-mono font-bold cursor-pointer ${
+                      extractionMethod === "text"
+                        ? "bg-slate-800 text-white shadow-sm border border-slate-700"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    📝 Raw Text Paste
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExtractionMethod("pdf")}
+                    className={`flex-1 py-1.5 text-[10px] uppercase tracking-wider rounded-lg transition-all font-mono font-bold cursor-pointer ${
+                      extractionMethod === "pdf"
+                        ? "bg-slate-800 text-emerald-400 shadow-sm border border-slate-700"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    📂 PDF File Upload
+                  </button>
+                </div>
+
+                {extractionMethod === "text" ? (
+                  <textarea
+                    rows={4}
+                    placeholder="e.g. Paste questions or textbook paragraph page here. Gemini will organize four options and correct keys."
+                    value={rawPasteText}
+                    onChange={(e) => setRawPasteText(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-850 hover:border-slate-800 focus:border-red-500 rounded-xl p-3.5 text-xs text-white placeholder-slate-650 focus:outline-none transition-all resize-y font-mono"
+                  />
+                ) : (
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDropPdf}
+                    className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${
+                      isDraggingPdf
+                        ? "border-emerald-500 bg-emerald-500/5 animate-pulse"
+                        : selectedPdfFile
+                        ? "border-emerald-500/40 bg-slate-950/40"
+                        : "border-slate-800 bg-slate-950/20 hover:border-slate-700"
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      id="pdf-upload-input"
+                      accept=".pdf"
+                      onChange={handlePdfChange}
+                      className="hidden"
+                    />
+                    <label htmlFor="pdf-upload-input" className="cursor-pointer block space-y-2">
+                      <div className="flex justify-center flex-col items-center">
+                        <FileText className={`w-8 h-8 mb-2 ${selectedPdfFile ? "text-emerald-400 animate-pulse" : "text-slate-500"}`} />
+                        {selectedPdfFile ? (
+                          <div className="space-y-1">
+                            <p className="text-xs font-semibold text-white">{selectedPdfFile.name}</p>
+                            <p className="text-[10px] text-emerald-400 font-mono">
+                              {(selectedPdfFile.size / 1024 / 1024).toFixed(2)} MB &bull; READY TO EXTRACT
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-slate-300">
+                              Click to upload or drag & drop past paper/syllabus PDF
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-mono text-center block">
+                              PDF FORMAT (MAX 15MB)
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </label>
+                    {selectedPdfFile && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setSelectedPdfFile(null);
+                          setPdfBase64(null);
+                        }}
+                        className="mt-3 text-[10px] font-mono text-rose-400 hover:text-rose-300 uppercase underline decoration-rose-500/30 font-bold block mx-auto cursor-pointer"
+                      >
+                        [ Remove File ]
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex justify-end mt-3">
                   <button
@@ -950,7 +1249,9 @@ ${rawPasteText}
                     {isExtracting ? (
                       <>
                         <div className="w-3.5 h-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                        <span className="font-mono text-[10px] uppercase">Parsing Text...</span>
+                        <span className="font-mono text-[10px] uppercase">
+                          {extractionMethod === "pdf" ? "Parsing Multimodal PDF..." : "Parsing Text..."}
+                        </span>
                       </>
                     ) : (
                       <>
