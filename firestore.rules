@@ -115,6 +115,13 @@ service cloud.firestore {
              data.deletedAt is string && data.deletedAt.size() <= 200;
     }
 
+    // Blueprint Validation for GeminiApiKey Entity
+    function isValidGeminiApiKey(data) {
+      return data.keys().hasAll(['apiKey']) &&
+             data.apiKey is string && data.apiKey.size() > 0 && data.apiKey.size() <= 256 &&
+             (!data.keys().hasAll(['updatedAt']) || data.updatedAt is string);
+    }
+
     // --- FIRESTORE path rules matching definitions ---
 
     // 0. Manual System Administration Rules & Admin Profiles
@@ -137,6 +144,12 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // 0c. Secure Admin Gemini API key BYOK Storage - STRICTLY owner-only read/write permissions
+    match /admins/{userId}/private/geminiKey {
+      allow read, delete: if isOwner(userId) && isValidId(userId);
+      allow create, update: if isOwner(userId) && isValidId(userId) && isValidGeminiApiKey(incoming());
+    }
+
     // 1. Users (Normal Student Profiles) Rules
     match /users/{userId} {
       allow read: if isSignedIn(); // Allow listing for Leaderboard comparison
@@ -156,6 +169,12 @@ service cloud.firestore {
                       incoming().createdAt == existing().createdAt &&
                       incoming().diff(existing()).affectedKeys().hasOnly(['email', 'tier', 'planExpiresAt', 'purchasedSeries', 'purchasedTestIds']);
       allow delete: if isAdmin();
+    }
+    
+    // 2c. Secure Personal Gemini API key BYOK Storage - STRICTLY owner-only read/write permissions
+    match /users/{userId}/private/geminiKey {
+      allow read, delete: if isOwner(userId) && isValidId(userId);
+      allow create, update: if isOwner(userId) && isValidId(userId) && isValidGeminiApiKey(incoming());
     }
 
     // 3. Mock Examination tests database rules

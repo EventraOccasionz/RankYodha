@@ -100,27 +100,21 @@ export const handler = async (event: any) => {
   }
 
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const body = JSON.parse(event.body || "{}");
+    const { rawText, pdfBase64, category, userApiKey } = body;
+
+    if (!userApiKey) {
       return {
-        statusCode: 401,
+        statusCode: 200,
         headers,
         body: JSON.stringify({
           success: false,
-          error: "GEMINI_API_KEY is not configured in Netlify's Environment Variables.\n\n" +
-                 "To set this securely:\n" +
-                 "1. Go to your Netlify Dashboard for this site.\n" +
-                 "2. Navigate to 'Site configuration' > 'Environment variables'.\n" +
-                 "3. Add a new variable named 'GEMINI_API_KEY'.\n" +
-                 "4. Ensure it is marked as 'Secret' so it won't be exposed in logs or UI."
+          error: "Custom Gemini API Key not supplied. Please add your Gemini API Key in Settings to enable this AI feature."
         }),
       };
     }
 
-    const ai = getGeminiClient(apiKey);
-
-    const body = JSON.parse(event.body || "{}");
-    const { rawText, pdfBase64, category } = body;
+    const ai = getGeminiClient(userApiKey);
 
     if ((!rawText || !rawText.trim()) && !pdfBase64) {
       return {

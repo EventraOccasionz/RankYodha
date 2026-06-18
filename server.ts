@@ -40,7 +40,7 @@ async function generateContentWithFallback(aiClient: GoogleGenAI, options: {
   contents: any[];
   config: any;
 }) {
-  const modelsToTry = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"];
+  const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
   let lastError: any = null;
 
   for (const model of modelsToTry) {
@@ -78,33 +78,22 @@ async function generateContentWithFallback(aiClient: GoogleGenAI, options: {
   throw lastError;
 }
 
-// Initialize GoogleGenAI securely on the server-side only
-const apiKeyEnv = process.env.GEMINI_API_KEY;
-const ai = apiKeyEnv ? getGeminiClient(apiKeyEnv) : null;
-
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // Admin API: Parse questions using Gemini AI (PDF to CBT Converter)
 app.post("/api/gemini/parse-test", async (req, res) => {
   try {
-    if (!ai) {
+    const { rawText, pdfBase64, category, userApiKey } = req.body;
+
+    if (!userApiKey) {
       return res.status(200).json({
         success: false,
-        error: "GEMINI_API_KEY is not configured in the system environment.",
-        mockData: [
-          {
-            questionText: "Sample Extracted Question: Which layer of the atmosphere contains the ozone layer?",
-            options: ["Troposphere", "Stratosphere", "Mesosphere", "Thermosphere"],
-            correctOptionIndex: 1,
-            explanation: "The ozone layer is a region of Earth's stratosphere that absorbs most of the Sun's ultraviolet radiation.",
-            subject: "Geography / Environment"
-          }
-        ]
+        error: "Custom Gemini API Key not supplied. Please add your Gemini API Key in Settings to enable this AI feature."
       });
     }
 
-    const { rawText, pdfBase64, category } = req.body;
+    const userAi = getGeminiClient(userApiKey);
 
     if ((!rawText || !rawText.trim()) && !pdfBase64) {
       return res.status(400).json({ error: "Syllabus/Test raw content or a PDF file is required for extraction." });
@@ -134,7 +123,7 @@ If the content does not contain explicit options, generate high-quality options,
       contents.push(`${userPrompt}\n\nText to parse:\n"""\n${rawText}\n"""`);
     }
 
-    const response = await generateContentWithFallback(ai, {
+    const response = await generateContentWithFallback(userAi, {
       contents: contents,
       config: {
         systemInstruction: systemPrompt,

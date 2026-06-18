@@ -7,6 +7,7 @@ import {
   collection, 
   doc, 
   setDoc, 
+  getDoc,
   getDocs, 
   deleteDoc,
   onSnapshot 
@@ -45,7 +46,7 @@ async function generateContentWithFallbackClient(clientAi: any, options: {
   contents: any[];
   config: any;
 }) {
-  const modelsToTry = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"];
+  const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
   let lastError: any = null;
 
   for (const model of modelsToTry) {
@@ -83,13 +84,53 @@ async function generateContentWithFallbackClient(clientAi: any, options: {
   throw lastError;
 }
 
-export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPrepVideos?: PrepVideo[], allMockTests?: MockTest[] }) {
+export default function AdminDashboard({ allPrepVideos, allMockTests, setScreen }: { allPrepVideos?: PrepVideo[], allMockTests?: MockTest[], setScreen?: (screen: any) => void }) {
   const { user, profile, isAdmin } = useAuth();
   
   // Custom uploaded mock tests
   const [customTests, setCustomTests] = useState<MockTest[]>([]);
   const [loadingTests, setLoadingTests] = useState<boolean>(true);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+
+  // User BYOK API key state
+  const [userApiKey, setUserApiKey] = useState<string | null>(null);
+  const [loadingUserKey, setLoadingUserKey] = useState(true);
+
+  // Load user private API key from Firestore or LocalStorage for Sandbox
+  useEffect(() => {
+    async function fetchUserKey() {
+      if (!user) {
+        setUserApiKey(null);
+        setLoadingUserKey(false);
+        return;
+      }
+
+      const isSandbox = user.uid.startsWith("virtual_sandbox_");
+      if (isSandbox) {
+        const storedKey = localStorage.getItem("eliteprep_sandbox_geminiKey") || null;
+        setUserApiKey(storedKey);
+        setLoadingUserKey(false);
+        return;
+      }
+
+      try {
+        const colName = isAdmin ? "admins" : "users";
+        const keyRef = doc(db, colName, user.uid, "private", "geminiKey");
+        const snap = await getDoc(keyRef);
+        if (snap.exists() && snap.data().apiKey) {
+          setUserApiKey(snap.data().apiKey);
+        } else {
+          setUserApiKey(null);
+        }
+      } catch (err) {
+        console.warn("Could not retrieve user key on Admin mount:", err);
+        setUserApiKey(null);
+      } finally {
+        setLoadingUserKey(false);
+      }
+    }
+    fetchUserKey();
+  }, [user, isAdmin]);
 
   // Form states for new test
   const [testTitle, setTestTitle] = useState("");
@@ -375,13 +416,35 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
     setExtractionSuccess(null);
     setIsExtracting(true);
     try {
+      if (!user) {
+        throw new Error("You must be authenticated to use Gemini AI extraction.");
+      }
+
+      // Fetch the user's private Gemini API key with dynamic collection support & Sandbox fallback
+      let customApiKey = "";
+      const isSandbox = user.uid.startsWith("virtual_sandbox_");
+      if (isSandbox) {
+        customApiKey = localStorage.getItem("eliteprep_sandbox_geminiKey") || "";
+      } else {
+        const colName = isAdmin ? "admins" : "users";
+        const keyRef = doc(db, colName, user.uid, "private", "geminiKey");
+        const snap = await getDoc(keyRef);
+        if (snap.exists() && snap.data().apiKey) {
+          customApiKey = snap.data().apiKey;
+        }
+      }
+
+      if (!customApiKey) {
+        throw new Error("Please add your Gemini API key in Settings before using this feature.");
+      }
+
       let data: any = null;
       let usedClientFallback = false;
 
       try {
         const payload = extractionMethod === "pdf" 
-          ? { pdfBase64, category: testCategory }
-          : { rawText: rawPasteText, category: testCategory };
+          ? { pdfBase64, category: testCategory, userApiKey: customApiKey }
+          : { rawText: rawPasteText, category: testCategory, userApiKey: customApiKey };
 
         const response = await fetch("/api/gemini/parse-test", {
           method: "POST",
@@ -403,11 +466,8 @@ export default function AdminDashboard({ allPrepVideos, allMockTests }: { allPre
 
       if (usedClientFallback) {
         console.log("Using secure client-side parse with fallback...");
-        const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
-        
-        if (!apiKey) {
-          throw new Error("GEMINI_API_KEY / VITE_GEMINI_API_KEY variable is missing. Please follow the Setup Handbook below to configure your key in your Netlify Environment settings.");
-        }
+        // Use user's private key directly with no defaults
+        const apiKey = customApiKey;
         
         let clientAi;
         if (apiKey.startsWith("AIza") || apiKey.startsWith("AQ.")) {
@@ -1070,19 +1130,18 @@ If the content does not contain explicit options, generate high-quality options,
                       className="text-[10px] font-mono uppercase bg-rose-950/35 hover:bg-rose-950/60 text-rose-300 border border-rose-500/20 rounded px-2.5 py-1 flex items-center gap-1 cursor-pointer transition-colors"
                     >
                       <HelpCircle className="w-3.5 h-3.5" />
-                      {showConfigHelper ? "Hide Setup Handbook" : "Show Netlify Setup Handbook"}
+                      {showConfigHelper ? "Hide Setup Handbook" : "Show Setup Handbook"}
                     </button>
                   </div>
                 </div>
               )}
-
-              {/* Collapsible Netlify deployment / Gemini key configuration handbook */}
+              {/* Collapsible Personal Settings / Gemini key configuration handbook */}
               {(showConfigHelper || !formError) && (
                 <div className="p-5 bg-gradient-to-br from-slate-950 to-slate-900 border border-slate-800 rounded-2xl text-left space-y-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <HelpCircle className="w-5 h-5 text-emerald-400" />
-                      <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">Netlify & Gemini Config Handbook</h4>
+                      <HelpCircle className="w-5 h-5 text-[#FF3B3F]" />
+                      <h4 className="text-xs font-bold text-white uppercase tracking-wider font-mono">Personal API Key Setup Guide</h4>
                     </div>
                     {formError && (
                       <button
@@ -1095,36 +1154,29 @@ If the content does not contain explicit options, generate high-quality options,
                     )}
                   </div>
                   
-                  <p className="text-slate-400 text-[11px] leading-relaxed">
-                    Netlify is a robust static-hosting platform. While standard web applications cannot run normal background server processes (like <code className="text-slate-200 font-mono">server.ts</code>), this system has been fully optimized with <strong className="text-emerald-400">Netlify Serverless Functions</strong> and a secure developer fallback wrapper.
+                  <p className="text-slate-400 text-[11px] leading-relaxed font-sans">
+                    ElitePrep operates on a Bring-Your-Own-Key model. Your API keys are kept entirely private to you, saved directly to your private profile in cloud storage. No one else has access to them, and they are only invoked directly on demand.
                   </p>
 
                   <div className="space-y-3 font-sans text-[11px] text-slate-300">
                     <div className="flex gap-3">
-                      <span className="w-5 h-5 bg-slate-800 text-emerald-400 font-mono font-bold rounded flex items-center justify-center flex-shrink-0">1</span>
+                      <span className="w-5 h-5 bg-slate-800 text-[#FF3B3F] font-mono font-bold rounded flex items-center justify-center flex-shrink-0">1</span>
                       <p className="leading-relaxed">
-                        <strong className="text-white">Get a Standard Developer Key:</strong> Go to Google AI Studio at <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-emerald-400 font-medium hover:underline inline-flex items-center gap-0.5">aistudio.google.com</a>, request a free key, and ensure it starts with <code className="bg-slate-950 px-1 py-0.5 rounded text-white font-mono text-[10px]">AIzaSy...</code>
+                        <strong className="text-white">Get a Standard Developer Key:</strong> Go to Google AI Studio at <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-[#FF3B3F] font-medium hover:underline inline-flex items-center gap-0.5">aistudio.google.com</a>, request a free key, and ensure it starts with <code className="bg-slate-950 px-1 py-0.5 rounded text-white font-mono text-[10px]">AIzaSy...</code>
                       </p>
                     </div>
 
                     <div className="flex gap-3">
-                      <span className="w-5 h-5 bg-slate-800 text-emerald-400 font-mono font-bold rounded flex items-center justify-center flex-shrink-0">2</span>
+                      <span className="w-5 h-5 bg-slate-800 text-[#FF3B3F] font-mono font-bold rounded flex items-center justify-center flex-shrink-0">2</span>
                       <p className="leading-relaxed">
-                        <strong className="text-white">Configure in Netlify:</strong> Log into your Netlify dashboard, navigate to <strong className="text-slate-100">Site Configuration</strong> &gt; <strong className="text-slate-100">Environment variables</strong>, and click <strong className="text-slate-100">Add a variable</strong>.
+                        <strong className="text-white">Open Personal Settings:</strong> Click on your profile in the top header and select <strong className="text-slate-100">Personal Settings</strong> to navigate to your credentials console.
                       </p>
                     </div>
 
                     <div className="flex gap-3">
-                      <span className="w-5 h-5 bg-slate-800 text-emerald-400 font-mono font-bold rounded flex items-center justify-center flex-shrink-0">3</span>
+                      <span className="w-5 h-5 bg-slate-800 text-[#FF3B3F] font-mono font-bold rounded flex items-center justify-center flex-shrink-0">3</span>
                       <p className="leading-relaxed">
-                        <strong className="text-white">Set the Secret Variable:</strong> Define Key as <code className="bg-emerald-950/40 text-emerald-300 px-1.5 py-0.5 rounded font-mono font-bold select-all text-[10px]">GEMINI_API_KEY</code>, paste your standard <code className="text-white font-mono">AIzaSy...</code> key, and mark the variable as <strong className="text-emerald-400">Secret</strong> so it never leaks.
-                      </p>
-                    </div>
-
-                    <div className="flex gap-3">
-                      <span className="w-5 h-5 bg-slate-800 text-emerald-400 font-mono font-bold rounded flex items-center justify-center flex-shrink-0">4</span>
-                      <p className="leading-relaxed">
-                        <strong className="text-white">Trigger a Redeploy:</strong> In Netlify, go to <strong className="text-slate-100">Deploys</strong> &gt; <strong className="text-slate-100">Trigger deploy</strong> &gt; <strong className="text-slate-100">Clear cache and deploy site</strong> to activate the brand new environment variables.
+                        <strong className="text-white">Verify and Save:</strong> Paste your key, click <strong className="text-slate-100">Test Key Connection</strong> to verify alignment, and click <strong className="text-slate-100">Save Key</strong>.
                       </p>
                     </div>
                   </div>
@@ -1244,11 +1296,32 @@ If the content does not contain explicit options, generate high-quality options,
                   </div>
                 )}
 
+                {!userApiKey && !loadingUserKey && (
+                  <div className="bg-red-950/20 border border-red-900/40 p-4 mt-4 text-xs font-sans text-red-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-none">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5 text-rose-500 flex-shrink-0" />
+                      <div>
+                        <p className="font-bold">Gemini API Key Required</p>
+                        <p className="text-slate-400 text-[11px]">Please add your Gemini API key in Settings before using this premium extraction feature.</p>
+                      </div>
+                    </div>
+                    {setScreen && (
+                      <button
+                        type="button"
+                        onClick={() => setScreen("settings")}
+                        className="px-3.5 py-1.5 bg-red-900/30 hover:bg-red-900/50 border border-red-700/50 text-red-200 transition-colors cursor-pointer text-[10px] font-mono uppercase tracking-wider font-bold h-fit w-fit select-none"
+                      >
+                        Go to Settings
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex justify-end mt-3">
                   <button
-                    disabled={isExtracting}
+                    disabled={isExtracting || !userApiKey}
                     onClick={handleAIExtractQuestions}
-                    className="px-4 py-2 bg-slate-800 disabled:bg-slate-900 border border-slate-700 hover:border-emerald-500 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer hover:text-emerald-400 transition-colors"
+                    className="px-4 py-2 bg-slate-800 disabled:bg-slate-900/60 disabled:text-slate-500 disabled:border-slate-800 border border-slate-700 hover:border-emerald-500 rounded-xl text-xs font-bold text-white flex items-center gap-1.5 cursor-pointer hover:text-emerald-400 transition-colors"
                   >
                     {isExtracting ? (
                       <>

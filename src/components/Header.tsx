@@ -9,7 +9,8 @@ import {
   ChevronDown, 
   LayoutDashboard,
   Sparkles,
-  BarChart2
+  BarChart2,
+  Settings
 } from "lucide-react";
 
 interface HeaderProps {
@@ -130,6 +131,14 @@ export default function Header({ currentScreen, setScreen, onOpenAuth }: HeaderP
                   >
                     <Crown className="w-4 h-4 text-[#FF3B3F]" />
                     Upgrade System
+                  </button>
+
+                  <button 
+                    onClick={() => { setScreen("settings"); setDropdownOpen(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-xs uppercase tracking-widest font-bold text-[#999] hover:bg-[#1A1A1A] hover:text-white transition-colors border-t border-[#2A2A2A]"
+                  >
+                    <Settings className="w-4 h-4 text-[#FF3B3F]" />
+                    Personal Settings
                   </button>
 
                   {/* Admin panel access */}

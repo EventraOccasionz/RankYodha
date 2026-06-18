@@ -108,12 +108,26 @@
         "deletedAt": { "type": "string", "format": "date-time", "description": "Timestamp of state change" }
       },
       "required": ["deleted", "deletedAt"]
+    },
+    "GeminiApiKey": {
+      "title": "GeminiApiKey",
+      "description": "User personal Gemini API key for Bring Your Own API Key feature",
+      "type": "object",
+      "properties": {
+        "apiKey": { "type": "string", "description": "The user-provided Gemini API key" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Timestamp when this key was configured" }
+      },
+      "required": ["apiKey"]
     }
   },
   "firestore": {
     "/admins/{userId}": {
       "schema": "Admin",
       "description": "List of manual administrative accounts permitted write access to main exam templates"
+    },
+    "/admins/{userId}/private/geminiKey": {
+      "schema": "GeminiApiKey",
+      "description": "Secure BYOK storage for separate administrative user credentials"
     },
     "/users/{userId}": {
       "schema": "Profile",
@@ -122,6 +136,10 @@
     "/users/{userId}/private/info": {
       "schema": "PrivateInfo",
       "description": "Direct personal details containing subscription keys and high-security details"
+    },
+    "/users/{userId}/private/geminiKey": {
+      "schema": "GeminiApiKey",
+      "description": "Secure BYOK storage for separate personal user keys"
     },
     "/mockTests/{testId}": {
       "schema": "MockTest",

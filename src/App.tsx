@@ -8,6 +8,7 @@ import MockTestScreen from "./screens/MockTestScreen";
 import ResultAnalyticsScreen from "./screens/ResultAnalyticsScreen";
 import PricingScreen from "./screens/PricingScreen";
 import AdminDashboard from "./screens/AdminDashboard";
+import SettingsScreen from "./screens/SettingsScreen";
 import { UserAttempt, MockTest, PrepVideo } from "./types";
 import { DEFAULT_MOCK_TESTS } from "./data/mockTestData";
 import { SEED_PREP_VIDEOS } from "./data/seedVideos";
@@ -16,7 +17,7 @@ import { collection, onSnapshot, doc, setDoc } from "firebase/firestore";
 
 export function StandardMain() {
   const { domainError, setDomainError, user, loading } = useAuth();
-  const [screen, setScreen] = useState<"landing" | "dashboard" | "mock-test" | "results" | "pricing" | "admin">("landing");
+  const [screen, setScreen] = useState<"landing" | "dashboard" | "mock-test" | "results" | "pricing" | "admin" | "settings">("landing");
   const [selectedTestId, setSelectedTestId] = useState<string>("upsc_mock_1");
   const [selectedAttempt, setSelectedAttempt] = useState<UserAttempt | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -181,7 +182,9 @@ export function StandardMain() {
       case "pricing":
         return <PricingScreen setScreen={setScreen} allMockTests={allMockTests} initialSelectedTestId={selectedTestId} setSelectedTestId={setSelectedTestId} />;
       case "admin":
-        return <AdminDashboard allPrepVideos={allPrepVideos} allMockTests={allMockTests} />;
+        return <AdminDashboard allPrepVideos={allPrepVideos} allMockTests={allMockTests} setScreen={setScreen} />;
+      case "settings":
+        return <SettingsScreen setScreen={setScreen} />;
       default:
         return <LandingPage setScreen={setScreen} setSelectedTestId={setSelectedTestId} onOpenAuth={() => setAuthModalOpen(true)} allMockTests={allMockTests} allPrepVideos={allPrepVideos} />;
     }
