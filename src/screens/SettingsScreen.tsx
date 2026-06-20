@@ -153,6 +153,118 @@ export default function SettingsScreen({ setScreen }: SettingsScreenProps) {
     }
   };
 
+  // Clean and format client-side Gemini API error output into a concise summary
+  const cleanClientGeminiError = (errMsg: string): string => {
+    if (!errMsg) return "Unknown verification error.";
+    try {
+      const jsonMatch = errMsg.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed?.error?.message) {
+          const msg = parsed.error.message;
+          if (msg.includes("limit: 0")) {
+            return "Quota limit 0 exceeded: This model requires standard pay-as-you-go billing or a higher tier key.";
+          }
+          if (msg.includes("Quota exceeded") || msg.includes("RESOURCE_EXHAUSTED")) {
+            return "Rate limit / Quota exceeded on free tier. Please wait a minute before retrying.";
+          }
+          return msg;
+        }
+      }
+    } catch (e) {
+      // ignore parsing error
+    }
+
+    if (errMsg.includes("503") || errMsg.includes("Service Unavailable")) {
+      return "Service temporarily unavailable (503): High-demand spike in progress. Please retry.";
+    }
+    if (errMsg.includes("API key not valid") || errMsg.includes("INVALID_ARGUMENT") || errMsg.includes("API key")) {
+      return "Invalid API Key: Please verify that you have entered your key correctly.";
+    }
+    if (errMsg.includes("PERMISSION_DENIED") || errMsg.includes("caller does not have permission")) {
+      return "Permission Denied: Your API key lacks access or authorized permission scopes.";
+    }
+    if (errMsg.includes("Quota exceeded") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("limit")) {
+      return "API Quota limit reached. Please wait or check your AI Studio quota allotments.";
+    }
+
+    if (errMsg.length > 150) {
+      return errMsg.substring(0, 150) + "...";
+    }
+    return errMsg;
+  };
+
+  // Direct client-side verification as fallback if server endpoint is 404 (static web deployment like Vercel)
+  const executeDirectClientVerification = async (keyToTest: string) => {
+    let listModelsSuccess = false;
+    let fallbackErrorText = "";
+
+    // 1. Core verification check: List Models endpoint
+    try {
+      console.log("[SettingsScreen] Falling back to Direct client-side verification...");
+      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(keyToTest)}`);
+      const listData = await listRes.json();
+      
+      if (listRes.ok && listData && (listData.models || listData.length > 0)) {
+        listModelsSuccess = true;
+      } else if (listData && listData.error) {
+        fallbackErrorText = listData.error.message || JSON.stringify(listData.error);
+        throw new Error(fallbackErrorText);
+      } else {
+        throw new Error(`HTTP status ${listRes.status}`);
+      }
+    } catch (err: any) {
+      console.warn("[SettingsScreen] Direct listModels endpoint check failed:", err?.message || err);
+      fallbackErrorText = err?.message || String(err);
+    }
+
+    // 2. Fallback check: Probing live models via lightweight generating request
+    const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+    let successModel = "";
+    let responseText = "";
+    
+    for (const m of modelsToTry) {
+      if (successModel) break;
+      try {
+        const genRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(keyToTest)}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: "Respond with 'OK' to verify connectivity." }]
+            }]
+          })
+        });
+
+        const genData = await genRes.json();
+        if (genRes.ok && genData && genData.candidates && genData.candidates[0]?.content?.parts[0]?.text) {
+          successModel = m;
+          responseText = genData.candidates[0].content.parts[0].text.trim();
+          break;
+        } else if (genData && genData.error) {
+          fallbackErrorText = genData.error.message || JSON.stringify(genData.error);
+        }
+      } catch (err: any) {
+        console.warn(`[SettingsScreen] model fallback probe ${m} failed:`, err?.message || err);
+      }
+    }
+
+    if (successModel || listModelsSuccess) {
+      setTestResult({
+        success: true,
+        message: `Verification Successful! Connection established directly from your browser. ${successModel ? `(Validated using model: ${successModel})` : '(Validated via resource models listing)'}`
+      });
+    } else {
+      const cleanMsg = cleanClientGeminiError(fallbackErrorText);
+      setTestResult({
+        success: false,
+        message: `Verification Failed: ${cleanMsg}`
+      });
+    }
+  };
+
   // Test configured key against real Gemini connection using the secure server-side endpoint (Requirement 1, 5, 6)
   const handleTestKey = async () => {
     const keyToTest = apiKey.trim();
@@ -197,6 +309,12 @@ export default function SettingsScreen({ setScreen }: SettingsScreenProps) {
         body: JSON.stringify({ apiKey: keyToTest })
       });
 
+      if (res.status === 404) {
+        console.warn("[SettingsScreen] Backend proxy returned 404 (static hosting). Triggering client-side fallback...");
+        await executeDirectClientVerification(keyToTest);
+        return;
+      }
+
       if (!res.ok) {
         throw new Error(`HTTP network error: status ${res.status}`);
       }
@@ -214,11 +332,15 @@ export default function SettingsScreen({ setScreen }: SettingsScreenProps) {
         });
       }
     } catch (err: any) {
-      console.warn("BYOK Live Connectivity Test failed status exception logged:", err?.message || err);
-      setTestResult({
-        success: false,
-        message: `Verification Failed: Unable to contact verification server. ${err?.message || "Unknown error"}`
-      });
+      console.warn("BYOK Live Connectivity Test failed, attempting direct client fallback:", err?.message || err);
+      try {
+        await executeDirectClientVerification(keyToTest);
+      } catch (fallbackErr: any) {
+        setTestResult({
+          success: false,
+          message: `Verification Failed: Unable to contact verification endpoint. ${fallbackErr?.message || "Unknown error"}`
+        });
+      }
     } finally {
       setTesting(false);
     }
