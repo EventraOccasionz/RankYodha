@@ -115,6 +115,17 @@ service cloud.firestore {
              data.deletedAt is string && data.deletedAt.size() <= 200;
     }
 
+    // Blueprint Validation for ActivityLog Entity
+    function isValidActivityLog(data) {
+      return data.keys().hasAll(['logId', 'userName', 'type', 'detail', 'value', 'timestamp']) &&
+             data.logId is string && data.logId.size() <= 128 &&
+             data.userName is string && data.userName.size() <= 256 &&
+             data.type is string && data.type.size() <= 128 &&
+             data.detail is string && data.detail.size() <= 1000 &&
+             (data.value is int || data.value is float) &&
+             data.timestamp is string && data.timestamp.size() <= 128;
+    }
+
     // Blueprint Validation for GeminiApiKey Entity
     function isValidGeminiApiKey(data) {
       return data.keys().hasAll(['apiKey']) &&
@@ -210,6 +221,12 @@ service cloud.firestore {
       allow read: if true;
       allow create, update: if isAdmin() && isValidId(assetId) && isValidDeletedAsset(incoming());
       allow delete: if isAdmin();
+    }
+
+    // 7. Live Activity logs rules
+    match /activityLogs/{logId} {
+      allow create: if isValidId(logId) && isValidActivityLog(incoming());
+      allow read, update, delete: if isAdmin();
     }
   }
 }

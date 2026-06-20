@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { DEFAULT_MOCK_TESTS } from "../data/mockTestData";
 import { saveUserAttempt } from "../lib/attempts";
+import { logActivity } from "../firebase";
 import { UserAttempt, UserAnswer, MockTest } from "../types";
 import { 
   Hourglass, 
@@ -201,6 +202,9 @@ export default function MockTestScreen({ testId, setScreen, setSelectedAttempt, 
       };
 
       await saveUserAttempt(user.uid, attemptPayload);
+
+      // LOG REAL-TIME ACTIVITY
+      await logActivity("mock_submitted", profile?.name || "Aspirant Rahul", `Attempt #${attemptPayload.attemptId.substring(8, 14)} registered`);
 
       // Save complete object forward to results screen
       const fullAttempt: UserAttempt = {

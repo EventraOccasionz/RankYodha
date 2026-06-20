@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, doc, setDoc } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyCcekn4DdjykUgcXfvbtzQj6YdEhhuCgoI",
@@ -14,6 +14,23 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, "ai-studio-4472a672-6dd1-444f-b116-a1d694b12fb7");
 export const auth = getAuth(app);
+
+export async function logActivity(type: string, userName: string, detail: string, value: number = 0): Promise<void> {
+  const logId = "log_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+  const payload = {
+    logId,
+    userName,
+    type,
+    detail,
+    value,
+    timestamp: new Date().toISOString()
+  };
+  try {
+    await setDoc(doc(db, "activityLogs", logId), payload);
+  } catch (err) {
+    console.warn("[logActivity] Non-blocking logger write failed (usually unauthenticated or offline):", err);
+  }
+}
 
 export enum OperationType {
   CREATE = 'create',

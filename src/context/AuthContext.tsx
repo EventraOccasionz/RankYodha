@@ -18,7 +18,7 @@ import {
   setDoc, 
   updateDoc,
 } from "firebase/firestore";
-import { auth, db, handleFirestoreError, OperationType } from "../firebase";
+import { auth, db, handleFirestoreError, OperationType, logActivity } from "../firebase";
 import { UserProfile, PrivateUserInfo } from "../types";
 
 interface AuthContextType {
@@ -450,8 +450,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const colName = isAdmin ? "admins" : "users";
     const privatePath = `${colName}/${user.uid}/private/info`;
     try {
-      const targetTime = new Date();
-      targetTime.setFullYear(targetTime.getFullYear() + 1); // 1 year expiry
+       const targetTime = new Date();
+       targetTime.setFullYear(targetTime.getFullYear() + 1); // 1 year expiry
 
       if (user.uid.startsWith("virtual_sandbox_")) {
         const stored = localStorage.getItem("eliteprep_sandbox_session");
@@ -469,6 +469,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setPrivateInfo(prev => prev ? { ...prev, tier: "premium", planExpiresAt: targetTime.toISOString() } : null);
+      
+      // LOG REAL-TIME ACTIVITY
+      await logActivity("premium_activated", profile?.name || "Aspirant Rahul", "UPI checkout success: ₹2999 confirmed", 2999);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, privatePath);
     }
@@ -498,6 +501,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setPrivateInfo(prev => prev ? { ...prev, purchasedSeries: updated } : null);
+
+      // LOG REAL-TIME ACTIVITY
+      await logActivity("premium_activated", profile?.name || "Aspirant Rahul", `Premium Pack activated: ₹999 paid`, 999);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, privatePath);
     }
@@ -527,6 +533,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setPrivateInfo(prev => prev ? { ...prev, purchasedTestIds: updated } : null);
+
+      // LOG REAL-TIME ACTIVITY
+      await logActivity("premium_activated", profile?.name || "Aspirant Rahul", `Mock Test unlocked: ₹199 paid`, 199);
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, privatePath);
     }
@@ -565,11 +574,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             try {
               await setDoc(doc(db, colName, currentUser.uid), tempProfile);
               userProfile = tempProfile;
+              // LOG REAL-TIME ACTIVITY
+              await logActivity("profile_created", tempProfile.name, `Aspirant signed-in under ${tempProfile.examCategory}`);
             } catch (err) {
               handleFirestoreError(err, OperationType.CREATE, pPath);
             }
           } else {
             // User exists, let's smart-calculate and check-in streak
+            if (!sessionStorage.getItem("logged_session_active_" + currentUser.uid)) {
+              sessionStorage.setItem("logged_session_active_" + currentUser.uid, "true");
+              await logActivity("profile_created", userProfile.name, `Aspirant signed-in under ${userProfile.examCategory}`);
+            }
+
             const lastUpdated = new Date(userProfile.updatedAt);
             const today = new Date();
             const diffTime = Math.abs(today.getTime() - lastUpdated.getTime());
