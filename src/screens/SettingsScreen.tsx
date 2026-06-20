@@ -219,7 +219,7 @@ export default function SettingsScreen({ setScreen }: SettingsScreenProps) {
     }
 
     // 2. Fallback check: Probing live models via lightweight generating request
-    const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+    const modelsToTry = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
     let successModel = "";
     let responseText = "";
     

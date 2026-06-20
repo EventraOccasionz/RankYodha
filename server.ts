@@ -84,7 +84,7 @@ async function generateContentWithFallback(aiClient: GoogleGenAI, options: {
   contents: any[];
   config: any;
 }) {
-  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+  const modelsToTry = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
   let lastError: any = null;
 
   for (const model of modelsToTry) {
@@ -277,7 +277,7 @@ app.post("/api/gemini/verify-key", async (req, res) => {
   }
 
   // Define fallback list of models
-  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+  const modelsToTry = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
   let lastError: any = null;
   let successModel: string | null = null;
   let responseText: string | null = null;
@@ -363,7 +363,7 @@ app.post("/api/gemini/verify-key", async (req, res) => {
   } else if (statusCode === 429 || rawMsg.includes("RESOURCE_EXHAUSTED") || rawMsg.includes("Quota exceeded") || rawMsg.includes("limit")) {
     errorType = "QUOTA_EXHAUSTED";
     if (rawMsg.includes("limit: 0")) {
-      cleanMsg = "Quota Limit Exceeded: This free key belongs to a project with 0 limit on these preview models. Please upgrade to use standard pay-as-you-go billing, or fallback to older models like 'gemini-1.5-flash'.";
+      cleanMsg = "Quota Limit Exceeded: This free key belongs to a project with 0 limit on these preview models. Please upgrade to use standard pay-as-you-go billing, or fallback to lighter models like 'gemini-3.1-flash-lite'.";
     } else {
       cleanMsg = "Quota Exceeded: Rate limit reached. Standard Google AI Studio keys on the free tier support limited RPM. Please wait 1-2 minutes before retrying.";
     }
