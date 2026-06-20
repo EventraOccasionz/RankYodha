@@ -40,6 +40,141 @@ import {
   ResponsiveContainer 
 } from "recharts";
 
+function cleanClientGeminiError(errMsg: string): string {
+  if (!errMsg) return "Unknown verification error.";
+  try {
+    const jsonMatch = errMsg.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed?.error?.message) {
+        const msg = parsed.error.message;
+        if (msg.includes("limit: 0")) {
+          return "Quota limit 0 exceeded: This model requires standard pay-as-you-go billing or a higher tier key.";
+        }
+        if (msg.includes("Quota exceeded") || msg.includes("RESOURCE_EXHAUSTED")) {
+          return "Rate limit / Quota exceeded on free tier. Please wait a minute before retrying.";
+        }
+        return msg;
+      }
+    }
+  } catch (e) {
+    // ignore parsing error
+  }
+
+  if (errMsg.includes("503") || errMsg.includes("Service Unavailable")) {
+    return "Service temporarily unavailable (503): High-demand spike in progress. Please retry.";
+  }
+  if (errMsg.includes("API key not valid") || errMsg.includes("INVALID_ARGUMENT") || errMsg.includes("API key")) {
+    return "Invalid API Key: Please verify that you have entered your key correctly.";
+  }
+  if (errMsg.includes("PERMISSION_DENIED") || errMsg.includes("caller does not have permission")) {
+    return "Permission Denied: Your API key lacks access or authorized permission scopes.";
+  }
+  if (errMsg.includes("Quota exceeded") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("limit")) {
+    return "API Quota limit reached. Please wait or check your AI Studio quota allotments.";
+  }
+
+  if (errMsg.length > 150) {
+    return errMsg.substring(0, 150) + "...";
+  }
+  return errMsg;
+}
+
+async function executeDirectClientParse(rawText: string, pdfBase64: string, category: string, apiKey: string) {
+  const streamCategory = category || "UPSC";
+  const systemPrompt = `You are an expert EdTech exam papers extractor.
+Extract a list of realistic multiple choice questions from the provided textbook notes, syllabus, exam papers, or raw notes.
+Ensure each question has exactly 4 options, a correct choice index (0 for Option A, 1 for B, 2 for C, 3 for D), an explanation, and a subject matching study streams.
+The target exam category stream is ${streamCategory}.`;
+
+  const userPrompt = `Parse the provided material and extract realistic mock questions.
+Output must follow the specified JSON schema.
+If the content does not contain explicit options, generate high-quality options, correct indices, and clear conceptual explanations from your knowledge base based on the topics discussed in the material.`;
+
+  const contentsParts: any[] = [];
+  if (pdfBase64) {
+    contentsParts.push({
+      inlineData: {
+        mimeType: "application/pdf",
+        data: pdfBase64
+      }
+    });
+    contentsParts.push({ text: `${userPrompt}\n\nPlease parse this attached PDF document to generate questions.` });
+  } else {
+    contentsParts.push({ text: `${userPrompt}\n\nText to parse:\n"""\n${rawText}\n"""` });
+  }
+
+  const payload = {
+    systemInstruction: {
+      parts: [{ text: systemPrompt }]
+    },
+    contents: [
+      {
+        parts: contentsParts
+      }
+    ],
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "ARRAY",
+        description: "List of extracted questions",
+        items: {
+          type: "OBJECT",
+          properties: {
+            questionText: { type: "STRING", description: "The single-choice multiple choice question statement." },
+            options: {
+              type: "ARRAY",
+              items: { type: "STRING" },
+              description: "Exactly four multiple choice options."
+            },
+            correctOptionIndex: { type: "INTEGER", description: "Index of the correct option (0, 1, 2, or 3)." },
+            explanation: { type: "STRING", description: "Complete educational solution or reference explanation." },
+            subject: { type: "STRING", description: "Subject topic label, e.g. 'Polity', 'Physics', 'History'." }
+          },
+          required: ["questionText", "options", "correctOptionIndex", "explanation", "subject"]
+        }
+      }
+    }
+  };
+
+  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
+  let lastError: any = null;
+  let questionsParsed: any[] = [];
+
+  for (const m of modelsToTry) {
+    try {
+      console.log(`[AdminDashboard] Attempting client fallback generation with model: ${m}`);
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (res.ok && data && data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+        const textContent = data.candidates[0].content.parts[0].text;
+        const parsed = JSON.parse(textContent);
+        if (Array.isArray(parsed)) {
+          questionsParsed = parsed;
+          return { success: true, questions: questionsParsed };
+        }
+      } else if (data && data.error) {
+        throw new Error(data.error.message || JSON.stringify(data.error));
+      } else {
+        throw new Error(`HTTP network error: status ${res.status}`);
+      }
+    } catch (err: any) {
+      console.warn(`[AdminDashboard] Client fallback generation with model ${m} failed:`, err?.message || err);
+      lastError = err;
+    }
+  }
+  
+  const cleanMsg = cleanClientGeminiError(lastError?.message || String(lastError || ""));
+  throw new Error(cleanMsg || "All client fallback models failed to extract valid questions.");
+}
+
 export default function AdminDashboard({ allPrepVideos, allMockTests, setScreen }: { allPrepVideos?: PrepVideo[], allMockTests?: MockTest[], setScreen?: (screen: any) => void }) {
   const { user, profile, isAdmin } = useAuth();
   
@@ -395,23 +530,38 @@ export default function AdminDashboard({ allPrepVideos, allMockTests, setScreen 
       }
 
       let data: any = null;
+      let usedClientFallback = false;
 
-      const payload = extractionMethod === "pdf" 
-        ? { pdfBase64, category: testCategory, userApiKey: customApiKey }
-        : { rawText: rawPasteText, category: testCategory, userApiKey: customApiKey };
+      try {
+        const payload = extractionMethod === "pdf" 
+          ? { pdfBase64, category: testCategory, userApiKey: customApiKey }
+          : { rawText: rawPasteText, category: testCategory, userApiKey: customApiKey };
 
-      const response = await fetch("/api/gemini/parse-test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        data = await response.json();
-      } else {
-        const errorText = await response.text();
-        throw new Error(errorText || "Server-side JSON parsing failure. Check your backend console logs.");
+        const response = await fetch("/api/gemini/parse-test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        
+        if (response.status === 404) {
+          console.warn("[AdminDashboard] Backend proxy returned 404 (static hosting). Triggering client-side fallback...");
+          usedClientFallback = true;
+        } else {
+          const contentType = response.headers.get("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            data = await response.json();
+          } else {
+            const errorText = await response.text();
+            throw new Error(errorText || "Server-side JSON parsing failure. Check your backend console logs.");
+          }
+        }
+      } catch (fetchErr) {
+        console.warn("[AdminDashboard] Server endpoint inaccessible, attempting direct browser fallback parsing...", fetchErr);
+        usedClientFallback = true;
+      }
+
+      if (usedClientFallback) {
+        data = await executeDirectClientParse(rawPasteText || "", pdfBase64 || "", testCategory, customApiKey);
       }
 
       if (data && data.success && data.questions && data.questions.length > 0) {
@@ -433,7 +583,7 @@ export default function AdminDashboard({ allPrepVideos, allMockTests, setScreen 
                    "💡 TO RESOLVE THIS SEOMLESSLY:\n" +
                    "1. Go to Google AI Studio (aistudio.google.com)\n" +
                    "2. Click 'Get API Key' and create a free key starting with 'AIzaSy'.\n" +
-                   "3. Set it as your 'GEMINI_API_KEY' in your Netlify Environment Settings.";
+                   "3. Set it as your 'GEMINI_API_KEY' in your Environment Settings.";
       }
       setFormError(errorMsg);
     } finally {
