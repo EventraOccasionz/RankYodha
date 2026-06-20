@@ -10,7 +10,9 @@ import {
   LayoutDashboard,
   Sparkles,
   BarChart2,
-  Settings
+  Settings,
+  Menu,
+  X
 } from "lucide-react";
 
 interface HeaderProps {
@@ -22,6 +24,7 @@ interface HeaderProps {
 export default function Header({ currentScreen, setScreen, onOpenAuth }: HeaderProps) {
   const { user, profile, privateInfo, signInWithGoogle, logout, isAdmin } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Determine if user has premium status
   const isPremium = privateInfo?.tier === "premium";
@@ -174,9 +177,48 @@ export default function Header({ currentScreen, setScreen, onOpenAuth }: HeaderP
               </button>
             </div>
           )}
+
+          {/* Hamburger Menu Toggle (Mobile Only) */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="flex md:hidden p-2 text-[#999] hover:text-white border border-transparent hover:border-[#2A2A2A] bg-transparent hover:bg-[#1A1A1A] transition-all focus:outline-none ml-1"
+            aria-label="Toggle navigation menu"
+            id="mobile-nav-toggle-btn"
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
         </div>
 
       </div>
+
+      {/* Mobile Navigation Drawer */}
+      {mobileMenuOpen && (
+        <nav className="md:hidden flex flex-col bg-[#0A0A0A] border-t border-[#1C1C1C] px-6 py-4 space-y-3.5 text-[10px] font-mono font-bold tracking-widest uppercase">
+          <button 
+            onClick={() => { setScreen("landing"); setMobileMenuOpen(false); }}
+            className={`text-left hover:text-white transition-colors py-2 border-b border-[#1A1A1A] ${currentScreen === "landing" ? "text-[#FF3B3F]" : "text-[#999]"}`}
+            id="mobile-nav-home-btn"
+          >
+            Home
+          </button>
+          {user && (
+            <button 
+              onClick={() => { setScreen("dashboard"); setMobileMenuOpen(false); }}
+              className={`text-left hover:text-white transition-colors py-2 border-b border-[#1A1A1A] ${currentScreen === "dashboard" ? "text-[#FF3B3F]" : "text-[#999]"}`}
+              id="mobile-nav-dashboard-btn"
+            >
+              Dashboard
+            </button>
+          )}
+          <button 
+            onClick={() => { setScreen("pricing"); setMobileMenuOpen(false); }}
+            className={`text-left hover:text-white transition-colors py-2 border-b border-[#1A1A1A] ${currentScreen === "pricing" ? "text-[#FF3B3F]" : "text-[#999]"}`}
+            id="mobile-nav-pricing-btn"
+          >
+            Premium Plans
+          </button>
+        </nav>
+      )}
     </header>
   );
 }

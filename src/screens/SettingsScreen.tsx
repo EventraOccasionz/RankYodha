@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { db } from "../firebase";
 import { doc, getDoc, setDoc, deleteDoc } from "firebase/firestore";
-import { GoogleGenAI } from "@google/genai";
 import { 
   Key, 
   Eye, 
@@ -154,7 +153,7 @@ export default function SettingsScreen({ setScreen }: SettingsScreenProps) {
     }
   };
 
-  // Test configured key against real Gemini connection with resilient models
+  // Test configured key against real Gemini connection using the secure server-side endpoint (Requirement 1, 5, 6)
   const handleTestKey = async () => {
     const keyToTest = apiKey.trim();
     if (!keyToTest) {
@@ -189,72 +188,36 @@ export default function SettingsScreen({ setScreen }: SettingsScreenProps) {
     }
 
     try {
-      // Initialize model client with standard or authorization flow
-      let clientAi: GoogleGenAI;
-      if (keyToTest.startsWith("AIza") || keyToTest.startsWith("AQ.")) {
-        clientAi = new GoogleGenAI({
-          apiKey: keyToTest,
-          httpOptions: {
-            headers: {
-              "User-Agent": "aistudio-build",
-            },
-          },
-        });
-      } else {
-        // Bearer fallback
-        clientAi = new GoogleGenAI({
-          apiKey: "",
-          httpOptions: {
-            headers: {
-              "User-Agent": "aistudio-build",
-              "Authorization": `Bearer ${keyToTest}`,
-            },
-          },
-        });
+      console.log("[SettingsScreen] testing key securely via backend proxy...");
+      const res = await fetch("/api/gemini/verify-key", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ apiKey: keyToTest })
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP network error: status ${res.status}`);
       }
 
-      // Perform a lightweight model generateContent ping to verify connection with proper fallback list
-      const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro"];
-      let response = null;
-      let lastError = null;
-
-      for (const m of modelsToTry) {
-        try {
-          response = await clientAi.models.generateContent({
-            model: m,
-            contents: "Respond with the word 'OK' to verify connectivity.",
-            config: {
-              maxOutputTokens: 10,
-              temperature: 0.1
-            }
-          });
-          if (response && response.text) {
-            break;
-          }
-        } catch (pingErr: any) {
-          lastError = pingErr;
-          // Check if this error is explicitly permission denied, if so, we can exit early or continue checks
-          if (pingErr?.status === "PERMISSION_DENIED" || pingErr?.message?.includes("PERMISSION_DENIED") || pingErr?.message?.includes("permission")) {
-            break; // Stop and fail immediately on definitive auth permissions block
-          }
-        }
-      }
-
-      if (response && response.text) {
+      const data = await res.json();
+      if (data && data.success) {
         setTestResult({
           success: true,
-          message: `Verification Successful: Connection Established! Client responds: "${response.text.trim()}"`
+          message: `${data.message || "Verification Successful!"} (Tested using AI model: ${data.modelUsed})`
         });
       } else {
-        throw lastError || new Error("Endpoint did not return a valid completion string.");
+        setTestResult({
+          success: false,
+          message: `Verification Failed: ${data.message || "Unknown proxy error."}`
+        });
       }
     } catch (err: any) {
       console.warn("BYOK Live Connectivity Test failed status exception logged:", err?.message || err);
-      // Construct detailed descriptive message
-      const errMsg = err?.message || err?.status || "Unknown auth validation error.";
       setTestResult({
         success: false,
-        message: `Verification Failed: Invalid key syntax, demand spike or lack of permissions. Details: ${errMsg}`
+        message: `Verification Failed: Unable to contact verification server. ${err?.message || "Unknown error"}`
       });
     } finally {
       setTesting(false);
