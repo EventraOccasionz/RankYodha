@@ -3,8 +3,23 @@ import path from "path";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
+import crypto from "crypto";
 
 dotenv.config();
+
+// Initialize Server-side Firebase connection
+const firebaseConfig = {
+  apiKey: "AIzaSyCcekn4DdjykUgcXfvbtzQj6YdEhhuCgoI",
+  authDomain: "examforge-a295f.firebaseapp.com",
+  projectId: "examforge-a295f",
+  storageBucket: "examforge-a295f.firebasestorage.app",
+  messagingSenderId: "102346844565",
+  appId: "1:102346844565:web:1e240b94e6791d51f02e9c"
+};
+const firebaseApp = initializeApp(firebaseConfig);
+const dbIdx = getFirestore(firebaseApp, "ai-studio-4472a672-6dd1-444f-b116-a1d694b12fb7");
 
 // Startup validation of GEMINI_API_KEY environment variable (Requirement 8)
 const apiKeyEnv = process.env.GEMINI_API_KEY;
@@ -128,6 +143,101 @@ async function generateContentWithFallback(aiClient: GoogleGenAI, options: {
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// Razorpay Securing Webhook handling
+app.post("/api/payments/webhook", async (req, res) => {
+  const RAZORPAY_SECRET = process.env.RAZORPAY_WEBHOOK_SECRET || "rzp_sec_default_secret_sign";
+  const signature = req.headers["x-razorpay-signature"];
+
+  // Read raw payload
+  const rawBody = JSON.stringify(req.body);
+
+  if (!signature) {
+    console.error("[payments webhook] Missing signature header.");
+    return res.status(400).json({ error: "Missing x-razorpay-signature header" });
+  }
+
+  // Signature validation using secure Node crypto module
+  const computedSignature = crypto
+    .createHmac("sha256", RAZORPAY_SECRET)
+    .update(rawBody)
+    .digest("hex");
+
+  if (signature !== computedSignature) {
+    console.warn("[payments webhook] Signature verification mismatch. Potential payload alteration.");
+    return res.status(400).json({ error: "Signature Verification Failed" });
+  }
+
+  try {
+    const event = req.body;
+    
+    if (event.event === "payment.captured") {
+      const paymentPayload = event.payload.payment.entity;
+      const paymentId = paymentPayload.id;
+      const amountInRupees = paymentPayload.amount / 100; // convert Paisa to Rupees
+      const orderId = paymentPayload.order_id || "direct_pay_" + Date.now();
+      const email = paymentPayload.email || "aspirant@eliteprep.com";
+
+      const notes = paymentPayload.notes || {};
+      const userId = notes.userId || "anonymous_user";
+      const userName = notes.userName || email;
+      const plan = notes.plan || "Mock Subscription Tier Unlock";
+
+      const paymentDoc = {
+        paymentId,
+        userId,
+        userName,
+        amount: amountInRupees,
+        status: "captured",
+        orderId,
+        plan,
+        timestamp: new Date().toISOString()
+      };
+
+      // Store in verified firestore collection
+      await setDoc(doc(dbIdx, "payments", paymentId), paymentDoc);
+      console.log(`[payments webhook] Verified Razorpay Payment success: ${paymentId} written to Firestore.`);
+
+      // Log real-time administration audit logs automatically
+      const logId = "log_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+      await setDoc(doc(dbIdx, "activityLogs", logId), {
+        logId,
+        userName,
+        type: "payment_success",
+        detail: `Verified Payment of ₹${amountInRupees} captured for ${plan}`,
+        value: amountInRupees,
+        timestamp: new Date().toISOString()
+      });
+
+      // Synchronize in-place with the dashboardStats collection too
+      try {
+        const statsRef = doc(dbIdx, "dashboardStats", "stats");
+        const statsSnap = await getDoc(statsRef);
+        let updatedRevenue = amountInRupees;
+        let updatedUsersCount = 1;
+
+        if (statsSnap.exists()) {
+          const statsData = statsSnap.data();
+          updatedRevenue = (Number(statsData.totalSales) || 0) + amountInRupees;
+          updatedUsersCount = Number(statsData.totalUsers) || 1;
+        }
+        await setDoc(statsRef, {
+          totalSales: updatedRevenue,
+          totalUsers: updatedUsersCount,
+          lastUpdated: new Date().toISOString()
+        }, { merge: true });
+        console.log(`[payments webhook] Aggregated dashboard stats updated.`);
+      } catch (aggErr) {
+        console.warn("[payments webhook] Non-blocking aggregation write skipped:", aggErr);
+      }
+    }
+
+    return res.status(200).json({ status: "success" });
+  } catch (error: any) {
+    console.error("[payments webhook] Crashing error:", error);
+    return res.status(500).json({ error: error?.message || "Internal server error" });
+  }
+});
 
 // Connection verification API endpoint (Requirement 5 & 6)
 app.post("/api/gemini/verify-key", async (req, res) => {

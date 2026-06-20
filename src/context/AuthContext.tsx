@@ -57,7 +57,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [domainError, setDomainError] = useState<boolean>(false);
 
   // Helper check for Admin database and fallback emails
-  const checkIsAdmin = async (uid: string, email: string | null): Promise<boolean> => {
+  const checkIsAdmin = async (uid: string, email: string | null, currentUser?: User | null): Promise<boolean> => {
+    // 1. Try resolving Custom Token Claims first
+    if (currentUser) {
+      try {
+        const idTokenResult = await currentUser.getIdTokenResult();
+        if (idTokenResult.claims && idTokenResult.claims.admin === true) {
+          return true;
+        }
+      } catch (err) {
+        console.warn("[checkIsAdmin] Custom Claims verification skipped or unresolvable:", err);
+      }
+    }
+
+    // 2. Fallback to developer admin whitelist config
     if (email && [
       "admin@eliteprep.com",
       "rahul@eliteprep.com",
@@ -66,6 +79,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ].includes(email)) {
       return true;
     }
+
+    // 3. Document check in the admins collection
     try {
       const snap = await getDoc(doc(db, "admins", uid));
       return snap.exists();
@@ -364,7 +379,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfile = async () => {
     if (user) {
-      const isA = await checkIsAdmin(user.uid, user.email);
+      const isA = await checkIsAdmin(user.uid, user.email, user);
       setIsAdmin(isA);
       const p = await getProfileFromServer(user.uid, isA);
       const pr = await getPrivateInfoFromServer(user.uid, isA);
@@ -470,6 +485,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setPrivateInfo(prev => prev ? { ...prev, tier: "premium", planExpiresAt: targetTime.toISOString() } : null);
       
+      // LOG PAYMENT RECORD
+      const paymentId = "pay_prem_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+      try {
+        await setDoc(doc(db, "payments", paymentId), {
+          paymentId,
+          userId: user.uid,
+          userName: profile?.name || "Aspirant Rahul",
+          amount: 2999,
+          status: "captured",
+          orderId: "order_prem_" + Math.floor(Math.random() * 900000 + 100000),
+          plan: "Full Ultimate Premium Pack",
+          timestamp: new Date().toISOString()
+        });
+      } catch (payErr) {
+        console.warn("Could not insert payment doc (permissions or sandbox limits):", payErr);
+      }
+
       // LOG REAL-TIME ACTIVITY
       await logActivity("premium_activated", profile?.name || "Aspirant Rahul", "UPI checkout success: ₹2999 confirmed", 2999);
     } catch (error) {
@@ -501,6 +533,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setPrivateInfo(prev => prev ? { ...prev, purchasedSeries: updated } : null);
+
+      // LOG PAYMENT RECORD
+      const paymentId = "pay_pack_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+      try {
+        await setDoc(doc(db, "payments", paymentId), {
+          paymentId,
+          userId: user.uid,
+          userName: profile?.name || "Aspirant Rahul",
+          amount: 999,
+          status: "captured",
+          orderId: "order_pack_" + Math.floor(Math.random() * 900000 + 100000),
+          plan: `Exams Pack Series: ${packageId}`,
+          timestamp: new Date().toISOString()
+        });
+      } catch (payErr) {
+        console.warn("Could not insert payment doc:", payErr);
+      }
 
       // LOG REAL-TIME ACTIVITY
       await logActivity("premium_activated", profile?.name || "Aspirant Rahul", `Premium Pack activated: ₹999 paid`, 999);
@@ -534,6 +583,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setPrivateInfo(prev => prev ? { ...prev, purchasedTestIds: updated } : null);
 
+      // LOG PAYMENT RECORD
+      const paymentId = "pay_test_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
+      try {
+        await setDoc(doc(db, "payments", paymentId), {
+          paymentId,
+          userId: user.uid,
+          userName: profile?.name || "Aspirant Rahul",
+          amount: 199,
+          status: "captured",
+          orderId: "order_test_" + Math.floor(Math.random() * 900000 + 100000),
+          plan: `Single Mock Test: ${testId}`,
+          timestamp: new Date().toISOString()
+        });
+      } catch (payErr) {
+        console.warn("Could not insert payment doc:", payErr);
+      }
+
       // LOG REAL-TIME ACTIVITY
       await logActivity("premium_activated", profile?.name || "Aspirant Rahul", `Mock Test unlocked: ₹199 paid`, 199);
     } catch (error) {
@@ -547,7 +613,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (currentUser) {
         setUser(currentUser);
         try {
-          const isA = await checkIsAdmin(currentUser.uid, currentUser.email);
+          const isA = await checkIsAdmin(currentUser.uid, currentUser.email, currentUser);
           setIsAdmin(isA);
 
           // Check if profile exists

@@ -31,11 +31,14 @@ service cloud.firestore {
     
     function isAdmin() {
       return isSignedIn() && (
-        (request.auth.token != null && 'email' in request.auth.token && (
-          request.auth.token.email == "admin@eliteprep.com" ||
-          request.auth.token.email == "rahul@eliteprep.com" ||
-          request.auth.token.email == "ayusharora408@gmail.com" ||
-          request.auth.token.email == "ddg27874@gmail.com"
+        (request.auth.token != null && (
+          (request.auth.token.admin == true) ||
+          ('email' in request.auth.token && (
+            request.auth.token.email == "admin@eliteprep.com" ||
+            request.auth.token.email == "rahul@eliteprep.com" ||
+            request.auth.token.email == "ayusharora408@gmail.com" ||
+            request.auth.token.email == "ddg27874@gmail.com"
+          ))
         )) ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
@@ -133,6 +136,30 @@ service cloud.firestore {
              (!data.keys().hasAll(['updatedAt']) || data.updatedAt is string);
     }
 
+    // Blueprint Validation for Payment Entity
+    function isValidPayment(data) {
+      return data.keys().hasAll(['paymentId', 'userId', 'userName', 'amount', 'status', 'orderId', 'plan', 'timestamp']) &&
+             data.paymentId is string && data.paymentId.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() <= 256 &&
+             (data.amount is int || data.amount is float) &&
+             data.status in ['captured', 'failed', 'refunded'] &&
+             data.orderId is string && data.orderId.size() <= 256 &&
+             data.plan is string && data.plan.size() <= 256 &&
+             data.timestamp is string && data.timestamp.size() <= 128;
+    }
+
+    // Blueprint Validation for DashboardMetrics Entity
+    function isValidDashboardMetrics(data) {
+      return data.keys().hasAll(['id', 'totalUsers', 'totalSales', 'gatewayHealth', 'gatewayLatency', 'lastUpdated']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.totalUsers is int &&
+             (data.totalSales is int || data.totalSales is float) &&
+             data.gatewayHealth is string && data.gatewayHealth.size() <= 128 &&
+             data.gatewayLatency is int &&
+             data.lastUpdated is string && data.lastUpdated.size() <= 128;
+    }
+
     // --- FIRESTORE path rules matching definitions ---
 
     // 0. Manual System Administration Rules & Admin Profiles
@@ -227,6 +254,27 @@ service cloud.firestore {
     match /activityLogs/{logId} {
       allow create: if isValidId(logId) && isValidActivityLog(incoming());
       allow read, update, delete: if isAdmin();
+    }
+
+    // 8. Secure Payment transactions tracking
+    match /payments/{paymentId} {
+      allow create: if isValidId(paymentId) && isValidPayment(incoming());
+      allow read, delete: if isAdmin() || (isSignedIn() && request.auth.uid == resource.data.userId);
+      allow update: if isAdmin();
+    }
+
+    // 9. Centralized metrics
+    match /dashboard/{id} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(id) && isValidDashboardMetrics(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // 10. Centralized dashboard stats mapping
+    match /dashboardStats/{id} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(id) && isValidDashboardMetrics(incoming());
+      allow delete: if isAdmin();
     }
   }
 }
