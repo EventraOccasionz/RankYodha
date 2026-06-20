@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useDashboardMetrics } from "../hooks/useDashboardMetrics";
 import { DEFAULT_MOCK_TESTS } from "../data/mockTestData";
+import { useAdminNotificationToasts } from "../hooks/useAdminNotificationToasts";
+import { AdminToastNotificationStack } from "../components/AdminToastNotificationStack";
 import { MockTest, Question, PrepVideo } from "../types";
 import { 
   collection, 
@@ -199,6 +201,9 @@ export default function AdminDashboard({ allPrepVideos, allMockTests, setScreen 
     revenueDataArray,
     loading: loadingMetrics
   } = useDashboardMetrics();
+
+  // Real-time toast notifications system
+  const { toasts, dismissToast } = useAdminNotificationToasts();
 
   // User BYOK API key state
   const [userApiKey, setUserApiKey] = useState<string | null>(null);
@@ -1613,6 +1618,9 @@ export default function AdminDashboard({ allPrepVideos, allMockTests, setScreen 
           </div>
         </div>
       )}
+
+      {/* Real-time floating overlay toast stack */}
+      <AdminToastNotificationStack toasts={toasts} onDismiss={dismissToast} />
 
     </div>
   );
